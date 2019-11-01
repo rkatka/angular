@@ -6,12 +6,11 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AotSummaryResolver, CompileMetadataResolver, CompilePipeSummary, CompilerConfig, DEFAULT_INTERPOLATION_CONFIG, DirectiveNormalizer, DirectiveResolver, DomElementSchemaRegistry, HtmlParser, InterpolationConfig, NgAnalyzedModules, NgModuleResolver, ParseTreeResult, PipeResolver, ResourceLoader, StaticReflector, StaticSymbol, StaticSymbolCache, StaticSymbolResolver, SummaryResolver} from '@angular/compiler';
-import * as fs from 'fs';
+import {CompilePipeSummary, StaticSymbol} from '@angular/compiler';
 import * as path from 'path';
 import * as ts from 'typescript';
 
-import {BuiltinType, DeclarationKind, Definition, PipeInfo, Pipes, Signature, Span, Symbol, SymbolDeclaration, SymbolQuery, SymbolTable} from './symbols';
+import {BuiltinType, DeclarationKind, Definition, Signature, Span, Symbol, SymbolDeclaration, SymbolQuery, SymbolTable} from './symbols';
 import {isVersionBetween} from './typescript_version';
 
 // In TypeScript 2.1 these flags moved
@@ -558,7 +557,7 @@ class PipeSymbol implements Symbol {
 
   selectSignature(types: Symbol[]): Signature|undefined {
     let signature = selectSignature(this.tsType, this.context, types) !;
-    if (types.length == 1) {
+    if (types.length > 0) {
       const parameterType = types[0];
       if (parameterType instanceof TypeWrapper) {
         let resultType: ts.Type|undefined = undefined;
@@ -576,7 +575,7 @@ class PipeSymbol implements Symbol {
             }
             break;
           case 'slice':
-            resultType = getTypeParameterOf(parameterType.tsType, 'Array');
+            resultType = parameterType.tsType;
             break;
         }
         if (resultType) {
@@ -625,7 +624,7 @@ function findClassSymbolInContext(type: StaticSymbol, context: TypeContext): ts.
     // This handles a case where an <packageName>/index.d.ts and a <packageName>/<packageName>.d.ts
     // are in the same directory. If we are looking for <packageName>/<packageName> and didn't
     // find it, look for <packageName>/index.d.ts as the program might have found that instead.
-    const p = type.filePath as string;
+    const p = type.filePath;
     const m = p.match(INDEX_PATTERN);
     if (m) {
       const indexVersion = path.join(path.dirname(p), 'index.d.ts');
@@ -645,50 +644,6 @@ class EmptyTable implements SymbolTable {
   has(key: string): boolean { return false; }
   values(): Symbol[] { return []; }
   static instance = new EmptyTable();
-}
-
-function findTsConfig(fileName: string): string|undefined {
-  let dir = path.dirname(fileName);
-  while (fs.existsSync(dir)) {
-    const candidate = path.join(dir, 'tsconfig.json');
-    if (fs.existsSync(candidate)) return candidate;
-    const parentDir = path.dirname(dir);
-    if (parentDir === dir) break;
-    dir = parentDir;
-  }
-}
-
-function isBindingPattern(node: ts.Node): node is ts.BindingPattern {
-  return !!node && (node.kind === ts.SyntaxKind.ArrayBindingPattern ||
-                    node.kind === ts.SyntaxKind.ObjectBindingPattern);
-}
-
-function walkUpBindingElementsAndPatterns(node: ts.Node): ts.Node {
-  while (node && (node.kind === ts.SyntaxKind.BindingElement || isBindingPattern(node))) {
-    node = node.parent !;
-  }
-
-  return node;
-}
-
-function getCombinedNodeFlags(node: ts.Node): ts.NodeFlags {
-  node = walkUpBindingElementsAndPatterns(node);
-
-  let flags = node.flags;
-  if (node.kind === ts.SyntaxKind.VariableDeclaration) {
-    node = node.parent !;
-  }
-
-  if (node && node.kind === ts.SyntaxKind.VariableDeclarationList) {
-    flags |= node.flags;
-    node = node.parent !;
-  }
-
-  if (node && node.kind === ts.SyntaxKind.VariableStatement) {
-    flags |= node.flags;
-  }
-
-  return flags;
 }
 
 function isSymbolPrivate(s: ts.Symbol): boolean {
@@ -751,15 +706,6 @@ function setParents<T extends ts.Node>(node: T, parent: ts.Node): T {
   node.parent = parent;
   ts.forEachChild(node, child => setParents(child, node));
   return node;
-}
-
-function spanOf(node: ts.Node): Span {
-  return {start: node.getStart(), end: node.getEnd()};
-}
-
-function shrink(span: Span, offset?: number) {
-  if (offset == null) offset = 1;
-  return {start: span.start + offset, end: span.end - offset};
 }
 
 function spanAt(sourceFile: ts.SourceFile, line: number, column: number): Span|undefined {
@@ -862,8 +808,6 @@ function typeKindOf(type: ts.Type | undefined): BuiltinType {
   }
   return BuiltinType.Other;
 }
-
-
 
 function getFromSymbolTable(symbolTable: ts.SymbolTable, key: string): ts.Symbol|undefined {
   const table = symbolTable as any;

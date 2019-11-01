@@ -1,7 +1,7 @@
 package(default_visibility = ["//visibility:public"])
 
-load("@npm_bazel_karma//:defs.bzl", "ts_web_test_suite")
-load("@npm_bazel_typescript//:defs.bzl", "ts_library")
+load("@npm_bazel_karma//:index.bzl", "ts_web_test_suite")
+load("@npm_bazel_typescript//:index.bzl", "ts_library")
 load("@io_bazel_rules_sass//sass:sass.bzl", "sass_binary")
 load("@npm_angular_bazel//:index.bzl", "ng_module", "ng_package")
 
@@ -25,7 +25,7 @@ ng_module(
 
 ng_package(
     name = "npm_package",
-    entry_point = "src/hello-world/index.js",
+    entry_point = ":index.ts",
     deps = [":hello-world"],
 )
 
@@ -45,21 +45,9 @@ ts_library(
 
 ts_web_test_suite(
     name = "test",
-    srcs = [
-        "@npm//node_modules/@angular/common:bundles/common.umd.js",
-        "@npm//node_modules/@angular/compiler:bundles/compiler.umd.js",
-        "@npm//node_modules/@angular/compiler:bundles/compiler-testing.umd.js",
-        "@npm//node_modules/@angular/core:bundles/core.umd.js",
-        "@npm//node_modules/@angular/core:bundles/core-testing.umd.js",
-        "@npm//node_modules/@angular/platform-browser:bundles/platform-browser.umd.js",
-        "@npm//node_modules/@angular/platform-browser:bundles/platform-browser-testing.umd.js",
-        "@npm//node_modules/@angular/platform-browser-dynamic:bundles/platform-browser-dynamic.umd.js",
-        "@npm//node_modules/@angular/platform-browser-dynamic:bundles/platform-browser-dynamic-testing.umd.js",
-        "@npm//node_modules/tslib:tslib.js",
-    ],
     bootstrap = [
-        "@npm//node_modules/zone.js:dist/zone-testing-bundle.js",
-        "@npm//node_modules/reflect-metadata:Reflect.js",
+        "@npm//:node_modules/zone.js/dist/zone-testing-bundle.js",
+        "@npm//:node_modules/reflect-metadata/Reflect.js",
     ],
     browsers = [
         "@io_bazel_rules_webtesting//browsers:chromium-local",
@@ -67,6 +55,8 @@ ts_web_test_suite(
         # See https://github.com/bazelbuild/rules_typescript/issues/296
         # "@io_bazel_rules_webtesting//browsers:firefox-local",
     ],
+    # rules_webtesting has a required_tag "native" for `chromium-local` browser
+    tags = ["native"],
     deps = [
         ":test_lib",
         "//src:rxjs_umd_modules",

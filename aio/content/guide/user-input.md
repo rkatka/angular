@@ -20,9 +20,7 @@ To bind to a DOM event, surround the DOM event name in parentheses and assign a 
 
 The following example shows an event binding that implements a click handler:
 
-<code-example path="user-input/src/app/click-me.component.ts" region="click-me-button" header="src/app/click-me.component.ts" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/click-me.component.ts" region="click-me-button" header="src/app/click-me.component.ts"></code-example>
 
 {@a click}
 
@@ -37,9 +35,7 @@ usually the Angular component controlling the template.
 The example above shows a single line of HTML, but that HTML belongs to a larger component:
 
 
-<code-example path="user-input/src/app/click-me.component.ts" region="click-me-component" header="src/app/click-me.component.ts" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/click-me.component.ts" region="click-me-component" header="src/app/click-me.component.ts"></code-example>
 
 
 
@@ -53,18 +49,14 @@ This section shows how to bind to the `keyup` event of an input box to get the u
 
 The following code listens to the `keyup` event and passes the entire event payload (`$event`) to the component event handler.
 
-<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-1-template" header="src/app/keyup.components.ts (template v.1)" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-1-template" header="src/app/keyup.components.ts (template v.1)"></code-example>
 
 
 
 When a user presses and releases a key, the `keyup` event occurs, and Angular provides a corresponding
 DOM event object in the `$event` variable which this code passes as a parameter to the component's `onKey()` method.
 
-<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-1-class-no-type" header="src/app/keyup.components.ts (class v.1)" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-1-class-no-type" header="src/app/keyup.components.ts (class v.1)"></code-example>
 
 
 
@@ -77,7 +69,7 @@ In this case, `target` refers to the [`<input>` element](https://developer.mozil
 `event.target.value` returns the current contents of that element.
 
 After each call, the `onKey()` method appends the contents of the input box value to the list
-in the component's `values` property, followed by a  separator character (|).
+in the component's `values` property, followed by a separator character (|).
 The [interpolation](guide/template-syntax#interpolation)
 displays the accumulating input box changes from the `values` property.
 
@@ -90,8 +82,10 @@ Here's what the UI displays:
 
 
 
-<figure>
-  <img src='generated/images/guide/user-input/keyup1-anim.gif' alt="key up 1">
+<figure class="lightbox">
+  <div class="card">
+    <img src='generated/images/guide/user-input/keyup1-anim.gif' alt="key up 1">
+  </div>
 </figure>
 
 
@@ -126,9 +120,7 @@ that could reveal properties of the event object and prevent silly mistakes.
 
 The following example rewrites the method with types:
 
-<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-1-class" header="src/app/keyup.components.ts (class v.1 - typed )" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-1-class" header="src/app/keyup.components.ts (class v.1 - typed )"></code-example>
 
 
 
@@ -156,9 +148,7 @@ To declare a template reference variable, precede an identifier with a hash (or 
 The following example uses a template reference variable
 to implement a keystroke loopback in a simple template.
 
-<code-example path="user-input/src/app/loop-back.component.ts" region="loop-back-component" header="src/app/loop-back.component.ts" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/loop-back.component.ts" region="loop-back-component" header="src/app/loop-back.component.ts"></code-example>
 
 
 
@@ -173,8 +163,10 @@ and the component does nothing.
 Type something in the input box, and watch the display update with each keystroke.
 
 
-<figure>
-  <img src='generated/images/guide/user-input/keyup-loop-back-anim.gif' alt="loop back">
+<figure class="lightbox">
+  <div class="card">
+    <img src='generated/images/guide/user-input/keyup-loop-back-anim.gif' alt="loop back">
+  </div>
 </figure>
 
 
@@ -200,9 +192,7 @@ It's easier to get to the input box with the template reference
 variable than to go through the `$event` object. Here's a rewrite of the previous
 `keyup` example that uses a template reference variable to get the user's input.
 
-<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-2" header="src/app/keyup.components.ts (v2)" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-2" header="src/app/keyup.components.ts (v2)"></code-example>
 
 
 
@@ -219,16 +209,16 @@ One way to reduce the noise would be to examine every `$event.keyCode` and take 
 There's an easier way: bind to Angular's `keyup.enter` pseudo-event.
 Then Angular calls the event handler only when the user presses _Enter_.
 
-<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-3" header="src/app/keyup.components.ts (v3)" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-3" header="src/app/keyup.components.ts (v3)"></code-example>
 
 
 
 Here's how it works.
 
-<figure>
-  <img src='generated/images/guide/user-input/keyup3-anim.gif' alt="key up 3">
+<figure class="lightbox">
+  <div class="card">
+    <img src='generated/images/guide/user-input/keyup3-anim.gif' alt="key up 3">
+  </div>
 </figure>
 
 
@@ -244,9 +234,7 @@ The component's `value` property is updated only when the user presses _Enter_.
 To fix this issue, listen to both the _Enter_ key and the _blur_ event.
 
 
-<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-4" header="src/app/keyup.components.ts (v4)" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/keyup.components.ts" region="key-up-component-4" header="src/app/keyup.components.ts (v4)"></code-example>
 
 
 
@@ -261,8 +249,10 @@ The user can add a hero by typing the hero's name in the input box and
 clicking **Add**.
 
 
-<figure>
-  <img src='generated/images/guide/user-input/little-tour-anim.gif' alt="Little Tour of Heroes">
+<figure class="lightbox">
+  <div class="card">
+    <img src='generated/images/guide/user-input/little-tour-anim.gif' alt="Little Tour of Heroes">
+  </div>
 </figure>
 
 
@@ -270,9 +260,7 @@ clicking **Add**.
 Below is the "Little Tour of Heroes"  component.
 
 
-<code-example path="user-input/src/app/little-tour.component.ts" region="little-tour" header="src/app/little-tour.component.ts" linenums="false">
-
-</code-example>
+<code-example path="user-input/src/app/little-tour.component.ts" region="little-tour" header="src/app/little-tour.component.ts"></code-example>
 
 
 
@@ -288,7 +276,7 @@ get the input box value and pass *that* to `addHero`.
 
 * **Keep template statements simple** &mdash;
 The `(blur)` event is bound to two JavaScript statements.
-The first statement calls `addHero`.  The second statement, `newHero.value=''`,
+The first statement calls `addHero`. The second statement, `newHero.value=''`,
 clears the input box after a new hero is added to the list.
 
 

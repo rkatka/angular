@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AttributeMarker, ViewEncapsulation} from '@angular/compiler/src/core';
+import {AttributeMarker} from '@angular/compiler/src/core';
 import {setup} from '@angular/compiler/test/aot/test_util';
 import {compile, expectEmit} from './mock_compile';
 
@@ -95,7 +95,7 @@ describe('compiler compliance: styling', () => {
          };
 
          const template = `
-         MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+         MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
            …
            styles: ["div.cool { color: blue; }", ":host.nice p { color: gold; }"],
            encapsulation: 1
@@ -128,13 +128,10 @@ describe('compiler compliance: styling', () => {
       };
 
       const template = `
-        MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+        MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
           type: MyComponent,
           selectors:[["my-component"]],
-          factory:function MyComponent_Factory(t){
-            return new (t || MyComponent)();
-          },
-          consts: 0,
+          decls: 0,
           vars: 0,
           template:  function MyComponent_Template(rf, $ctx$) {
           },
@@ -170,13 +167,10 @@ describe('compiler compliance: styling', () => {
       };
 
       const template = `
-        MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+        MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
           type: MyComponent,
           selectors:[["my-component"]],
-          factory:function MyComponent_Factory(t){
-            return new (t || MyComponent)();
-          },
-          consts: 0,
+          decls: 0,
           vars: 0,
           template:  function MyComponent_Template(rf, $ctx$) {
           },
@@ -215,20 +209,22 @@ describe('compiler compliance: styling', () => {
 
       const template = `
         …
-        MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+        MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
           …
-          consts: 3,
+          decls: 3,
           vars: 3,
           template:  function MyComponent_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelement(0, "div");
-              $r3$.ɵelement(1, "div");
-              $r3$.ɵelement(2, "div");
+              $r3$.ɵɵelement(0, "div");
+              $r3$.ɵɵelement(1, "div");
+              $r3$.ɵɵelement(2, "div");
             }
             if (rf & 2) {
-              $r3$.ɵelementProperty(0, "@foo", $r3$.ɵbind(ctx.exp));
-              $r3$.ɵelementProperty(1, "@bar", $r3$.ɵbind(undefined));
-              $r3$.ɵelementProperty(2, "@baz", $r3$.ɵbind(undefined));
+              $r3$.ɵɵproperty("@foo", ctx.exp);
+              $r3$.ɵɵadvance(1);
+              $r3$.ɵɵproperty("@bar", undefined);
+              $r3$.ɵɵadvance(1);
+              $r3$.ɵɵproperty("@baz", undefined);
             }
           },
           encapsulation: 2
@@ -274,18 +270,18 @@ describe('compiler compliance: styling', () => {
 
       const template = `
         …
-        MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+        MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
           …
-          consts: 1,
+          decls: 1,
           vars: 1,
           template: function MyComponent_Template(rf, ctx) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵlistener("@myAnimation.start", function MyComponent_Template_div_animation_myAnimation_start_0_listener($event) { return ctx.onStart($event); });
-              $r3$.ɵlistener("@myAnimation.done", function MyComponent_Template_div_animation_myAnimation_done_0_listener($event) { return ctx.onDone($event); });
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelementStart(0, "div");
+              $r3$.ɵɵlistener("@myAnimation.start", function MyComponent_Template_div_animation_myAnimation_start_0_listener($event) { return ctx.onStart($event); });
+              $r3$.ɵɵlistener("@myAnimation.done", function MyComponent_Template_div_animation_myAnimation_done_0_listener($event) { return ctx.onDone($event); });
+              $r3$.ɵɵelementEnd();
             } if (rf & 2) {
-              $r3$.ɵelementProperty(0, "@myAnimation", $r3$.ɵbind(ctx.exp));
+              $r3$.ɵɵproperty("@myAnimation", ctx.exp);
             }
           },
           encapsulation: 2,
@@ -336,15 +332,15 @@ describe('compiler compliance: styling', () => {
       };
 
       const template = `
-        MyAnimDir.ngDirectiveDef = $r3$.ɵdefineDirective({
+        MyAnimDir.ɵdir = $r3$.ɵɵdefineDirective({
           …
           hostBindings: function MyAnimDir_HostBindings(rf, ctx, elIndex) {
             if (rf & 1) {
-              $r3$.ɵallocHostVars(1);
-              $r3$.ɵcomponentHostSyntheticListener("@myAnim.start", function MyAnimDir_animation_myAnim_start_HostBindingHandler($event) { return ctx.onStart(); });
-              $r3$.ɵcomponentHostSyntheticListener("@myAnim.done", function MyAnimDir_animation_myAnim_done_HostBindingHandler($event) { return ctx.onDone(); });
+              $r3$.ɵɵallocHostVars(1);
+              $r3$.ɵɵcomponentHostSyntheticListener("@myAnim.start", function MyAnimDir_animation_myAnim_start_HostBindingHandler($event) { return ctx.onStart(); });
+              $r3$.ɵɵcomponentHostSyntheticListener("@myAnim.done", function MyAnimDir_animation_myAnim_done_HostBindingHandler($event) { return ctx.onDone(); });
             } if (rf & 2) {
-              $r3$.ɵcomponentHostSyntheticProperty(elIndex, "@myAnim", $r3$.ɵbind(ctx.myAnimState), null, true);
+              $r3$.ɵɵupdateSyntheticHostBinding("@myAnim", ctx.myAnimState);
             }
           }
           …
@@ -380,13 +376,11 @@ describe('compiler compliance: styling', () => {
       const template = `
           template: function MyComponent_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling(null, null, $r3$.ɵdefaultStyleSanitizer);
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelement(0, "div");
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(0, null, $ctx$.myStyleExp);
-              $r3$.ɵelementStylingApply(0);
+              $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+              $r3$.ɵɵstyleMap($ctx$.myStyleExp);
             }
           }
           `;
@@ -441,45 +435,36 @@ describe('compiler compliance: styling', () => {
 
          const template = `
         …
-          consts: 1,
-          vars: 1,
+          decls: 1,
+          vars: 3,
           template: function MyComponentWithInterpolation_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling();
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelement(0, "div");
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(0, $r3$.ɵinterpolation1("foo foo-", $ctx$.fooId, ""));
-              $r3$.ɵelementStylingApply(0);
+              $r3$.ɵɵclassMapInterpolate1("foo foo-", $ctx$.fooId, "");
             }
           }
         …
-          consts: 1,
-          vars: 2,
+          decls: 1,
+          vars: 4,
           template: function MyComponentWithMuchosInterpolation_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling();
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelement(0, "div");
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(0, $r3$.ɵinterpolation2("foo foo-", $ctx$.fooId, "-", $ctx$.fooUsername, ""));
-              $r3$.ɵelementStylingApply(0);
+              $r3$.ɵɵclassMapInterpolate2("foo foo-", $ctx$.fooId, "-", $ctx$.fooUsername, "");
             }
           }
         …
-          consts: 1,
-          vars: 0,
+          decls: 1,
+          vars: 2,
           template: function MyComponentWithoutInterpolation_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling();
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelement(0, "div");
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(0, $ctx$.exp);
-              $r3$.ɵelementStylingApply(0);
+              $r3$.ɵɵclassMap($ctx$.exp);
             }
           }
           `;
@@ -516,29 +501,23 @@ describe('compiler compliance: styling', () => {
          };
 
          const template = `
-          const $_c0$ = [${AttributeMarker.Styles}, "opacity", "1", ${AttributeMarker.SelectOnly}, "style"];
-          const $_c1$ = ["width", "height"];
           …
-          MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+          MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
               type: MyComponent,
               selectors:[["my-component"]],
-              factory:function MyComponent_Factory(t){
-                return new (t || MyComponent)();
-              },
-              consts: 1,
-              vars: 1,
+              decls: 1,
+              vars: 5,
+              consts: [[${AttributeMarker.Styles}, "opacity", "1"]],
               template:  function MyComponent_Template(rf, $ctx$) {
                 if (rf & 1) {
-                  $r3$.ɵelementStart(0, "div", $_c0$);
-                  $r3$.ɵelementStyling(null, $_c1$, $r3$.ɵdefaultStyleSanitizer);
-                  $r3$.ɵelementEnd();
+                  $r3$.ɵɵelement(0, "div", 0);
                 }
                 if (rf & 2) {
-                  $r3$.ɵelementStylingMap(0, null, $ctx$.myStyleExp);
-                  $r3$.ɵelementStyleProp(0, 0, $ctx$.myWidth);
-                  $r3$.ɵelementStyleProp(0, 1, $ctx$.myHeight);
-                  $r3$.ɵelementStylingApply(0);
-                  $r3$.ɵelementAttribute(0, "style", $r3$.ɵbind("border-width: 10px"), $r3$.ɵsanitizeStyle);
+                  $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+                  $r3$.ɵɵstyleMap($ctx$.myStyleExp);
+                  $r3$.ɵɵstyleProp("width", $ctx$.myWidth);
+                  $r3$.ɵɵstyleProp("height", $ctx$.myHeight);
+                  $r3$.ɵɵattribute("style", "border-width: 10px", $r3$.ɵɵsanitizeStyle);
                 }
               },
               encapsulation: 2
@@ -571,30 +550,18 @@ describe('compiler compliance: styling', () => {
          };
 
          const template = `
-          const $_c0$ = ["background-image"];
-          export class MyComponent {
-              constructor() {
-                  this.myImage = 'url(foo.jpg)';
-              }
-          }
-
-          MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+          MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
             type: MyComponent,
             selectors: [["my-component"]],
-            factory: function MyComponent_Factory(t) {
-              return new (t || MyComponent)();
-            },
-            consts: 1,
-            vars: 0,
+            decls: 1,
+            vars: 1,
             template:  function MyComponent_Template(rf, ctx) {
               if (rf & 1) {
-                $r3$.ɵelementStart(0, "div");
-                $r3$.ɵelementStyling(null, _c0, $r3$.ɵdefaultStyleSanitizer);
-                $r3$.ɵelementEnd();
+                $r3$.ɵɵelement(0, "div");
               }
               if (rf & 2) {
-                $r3$.ɵelementStyleProp(0, 0, ctx.myImage);
-                $r3$.ɵelementStylingApply(0);
+                $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+                $r3$.ɵɵstyleProp("background-image", ctx.myImage);
               }
             },
             encapsulation: 2
@@ -625,25 +592,43 @@ describe('compiler compliance: styling', () => {
       };
 
       const template = `
-          const $e0_styles$ = ["font-size"];
-          …
           template:  function MyComponent_Template(rf, ctx) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling(null, _c0);
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelement(0, "div");
             }
             if (rf & 2) {
-              $r3$.ɵelementStyleProp(0, 0, 12, "px");
-              $r3$.ɵelementStylingApply(0);
+              $r3$.ɵɵstyleProp("font-size", 12, "px");
             }
           }
      `;
 
       const result = compile(files, angularFiles);
       expectEmit(result.source, template, 'Incorrect template');
-
     });
+
+    it('should not create instructions for empty style bindings', () => {
+      const files = {
+        app: {
+          'spec.ts': `
+            import {Component, NgModule} from '@angular/core';
+
+            @Component({
+              selector: 'my-component',
+              template: \`<div [style.color]></div>\`
+            })
+            export class MyComponent {
+            }
+
+            @NgModule({declarations: [MyComponent]})
+            export class MyModule {}
+          `
+        }
+      };
+
+      const result = compile(files, angularFiles);
+      expect(result.source).not.toContain('styling');
+    });
+
   });
 
   describe('[class]', () => {
@@ -670,13 +655,10 @@ describe('compiler compliance: styling', () => {
       const template = `
           template: function MyComponent_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling();
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelement(0, "div");
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(0,$ctx$.myClassExp);
-              $r3$.ɵelementStylingApply(0);
+              $r3$.ɵɵclassMap($ctx$.myClassExp);
             }
           }
           `;
@@ -713,29 +695,22 @@ describe('compiler compliance: styling', () => {
          };
 
          const template = `
-          const $e0_attrs$ = [${AttributeMarker.Classes}, "grape", ${AttributeMarker.SelectOnly}, "class"];
-          const $e0_bindings$ = ["apple", "orange"];
           …
-          MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+          MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
               type: MyComponent,
               selectors:[["my-component"]],
-              factory:function MyComponent_Factory(t){
-                return new (t || MyComponent)();
-              },
-              consts: 1,
-              vars: 1,
+              decls: 1,
+              vars: 5,
+              consts: [[${AttributeMarker.Classes}, "grape"]],
               template:  function MyComponent_Template(rf, $ctx$) {
                 if (rf & 1) {
-                  $r3$.ɵelementStart(0, "div", $e0_attrs$);
-                  $r3$.ɵelementStyling($e0_bindings$);
-                  $r3$.ɵelementEnd();
+                  $r3$.ɵɵelement(0, "div", 0);
                 }
                 if (rf & 2) {
-                  $r3$.ɵelementStylingMap(0, $ctx$.myClassExp);
-                  $r3$.ɵelementClassProp(0, 0, $ctx$.yesToApple);
-                  $r3$.ɵelementClassProp(0, 1, $ctx$.yesToOrange);
-                  $r3$.ɵelementStylingApply(0);
-                  $r3$.ɵelementAttribute(0, "class", $r3$.ɵbind("banana"));
+                  $r3$.ɵɵclassMap($ctx$.myClassExp);
+                  $r3$.ɵɵclassProp("apple", $ctx$.yesToApple);
+                  $r3$.ɵɵclassProp("orange", $ctx$.yesToOrange);
+                  $r3$.ɵɵattribute("class", "banana");
                 }
               },
               encapsulation: 2
@@ -769,23 +744,19 @@ describe('compiler compliance: styling', () => {
          };
 
          const template = `
-          const $e0_attrs$ = [${AttributeMarker.Classes}, "foo", ${AttributeMarker.Styles}, "width", "100px", ${AttributeMarker.SelectOnly}, "class", "style"];
           …
-          MyComponent.ngComponentDef = $r3$.ɵdefineComponent({
+          MyComponent.ɵcmp = $r3$.ɵɵdefineComponent({
               type: MyComponent,
               selectors:[["my-component"]],
-              factory:function MyComponent_Factory(t){
-                return new (t || MyComponent)();
-              },
-              consts: 1,
+              decls: 1,
               vars: 2,
+              consts: [[${AttributeMarker.Classes}, "foo", ${AttributeMarker.Styles}, "width", "100px"]],
               template:  function MyComponent_Template(rf, $ctx$) {
                 if (rf & 1) {
-                  $r3$.ɵelement(0, "div", $e0_attrs$);
+                  $r3$.ɵɵelement(0, "div", 0);
                 }
                 if (rf & 2) {
-                  $r3$.ɵelementAttribute(0, "class", $r3$.ɵbind("round"));
-                  $r3$.ɵelementAttribute(0, "style", $r3$.ɵbind("height:100px"), $r3$.ɵsanitizeStyle);
+                  $r3$.ɵɵattribute("class", "round")("style", "height:100px", $r3$.ɵɵsanitizeStyle);
                 }
               },
               encapsulation: 2
@@ -795,10 +766,34 @@ describe('compiler compliance: styling', () => {
          const result = compile(files, angularFiles);
          expectEmit(result.source, template, 'Incorrect template');
        });
+
+    it('should not create instructions for empty class bindings', () => {
+      const files = {
+        app: {
+          'spec.ts': `
+            import {Component, NgModule} from '@angular/core';
+
+            @Component({
+              selector: 'my-component',
+              template: \`<div [class.is-open]></div>\`
+            })
+            export class MyComponent {
+            }
+
+            @NgModule({declarations: [MyComponent]})
+            export class MyModule {}
+          `
+        }
+      };
+
+      const result = compile(files, angularFiles);
+      expect(result.source).not.toContain('styling');
+    });
+
   });
 
   describe('[style] mixed with [class]', () => {
-    it('should combine [style] and [class] bindings into a single instruction', () => {
+    it('should split [style] and [class] bindings into a separate instructions', () => {
       const files = {
         app: {
           'spec.ts': `
@@ -822,13 +817,12 @@ describe('compiler compliance: styling', () => {
       const template = `
           template: function MyComponent_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling(null, null, $r3$.ɵdefaultStyleSanitizer);
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelement(0, "div");
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(0, $ctx$.myClassExp, $ctx$.myStyleExp);
-              $r3$.ɵelementStylingApply(0);
+              $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+              $r3$.ɵɵstyleMap($ctx$.myStyleExp);
+              $r3$.ɵɵclassMap($ctx$.myClassExp);
             }
           }
           `;
@@ -862,15 +856,15 @@ describe('compiler compliance: styling', () => {
          const template = `
           template: function MyComponent_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling(null, null, $r3$.ɵdefaultStyleSanitizer);
-              $r3$.ɵpipe(1, "classPipe");
-              $r3$.ɵpipe(2, "stylePipe");
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelementStart(0, "div");
+              $r3$.ɵɵpipe(1, "stylePipe");
+              $r3$.ɵɵpipe(2, "classPipe");
+              $r3$.ɵɵelementEnd();
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(0, $r3$.ɵpipeBind1(1, 0, $ctx$.myClassExp), $r3$.ɵpipeBind1(2, 2, $ctx$.myStyleExp));
-              $r3$.ɵelementStylingApply(0);
+              $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+              $r3$.ɵɵstyleMap($r3$.ɵɵpipeBind1(1, 4, $ctx$.myStyleExp));
+              $r3$.ɵɵclassMap($r3$.ɵɵpipeBind1(2, 6, $ctx$.myClassExp));
             }
           }
           `;
@@ -910,27 +904,73 @@ describe('compiler compliance: styling', () => {
       };
 
       const template = `
-          const $e0_classBindings$ = ["foo"];
-          const $e0_styleBindings$ = ["bar", "baz"];
-          …
           template: function MyComponent_Template(rf, $ctx$) {
             if (rf & 1) {
-              $r3$.ɵelementStart(0, "div");
-              $r3$.ɵelementStyling($e0_classBindings$, $e0_styleBindings$, $r3$.ɵdefaultStyleSanitizer);
-              $r3$.ɵpipe(1, "pipe");
-              $r3$.ɵpipe(2, "pipe");
-              $r3$.ɵpipe(3, "pipe");
-              $r3$.ɵpipe(4, "pipe");
-              $r3$.ɵtext(5);
-              $r3$.ɵelementEnd();
+              $r3$.ɵɵelementStart(0, "div");
+              $r3$.ɵɵpipe(1, "pipe");
+              $r3$.ɵɵpipe(2, "pipe");
+              $r3$.ɵɵpipe(3, "pipe");
+              $r3$.ɵɵpipe(4, "pipe");
+              $r3$.ɵɵtext(5);
+              $r3$.ɵɵelementEnd();
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(0, $e2_styling$, $r3$.ɵpipeBind2(1, 1, $ctx$.myStyleExp, 1000));
-              $r3$.ɵelementStyleProp(0, 0, $r3$.ɵpipeBind2(2, 4, $ctx$.barExp, 3000));
-              $r3$.ɵelementStyleProp(0, 1, $r3$.ɵpipeBind2(3, 7, $ctx$.bazExp, 4000));
-              $r3$.ɵelementClassProp(0, 0, $r3$.ɵpipeBind2(4, 10, $ctx$.fooExp, 2000));
-              $r3$.ɵelementStylingApply(0);
-              $r3$.ɵtextBinding(5, $r3$.ɵinterpolation1(" ", $ctx$.item, ""));
+              $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+              $r3$.ɵɵstyleMap($r3$.ɵɵpipeBind2(1, 8, $ctx$.myStyleExp, 1000));
+              $r3$.ɵɵclassMap($e2_styling$);
+              $r3$.ɵɵstyleProp("bar", $r3$.ɵɵpipeBind2(2, 11, $ctx$.barExp, 3000));
+              $r3$.ɵɵstyleProp("baz", $r3$.ɵɵpipeBind2(3, 14, $ctx$.bazExp, 4000));
+              $r3$.ɵɵclassProp("foo", $r3$.ɵɵpipeBind2(4, 17, $ctx$.fooExp, 2000));
+              $r3$.ɵɵadvance(5);
+             $r3$.ɵɵtextInterpolate1(" ", $ctx$.item, "");
+            }
+          }
+          `;
+
+      const result = compile(files, angularFiles);
+      expectEmit(result.source, template, 'Incorrect template');
+    });
+
+    it('should always generate select() statements before any styling instructions', () => {
+      const files = {
+        app: {
+          'spec.ts': `
+                import {Component, NgModule} from '@angular/core';
+
+                @Component({
+                  selector: 'my-component',
+                  template: \`
+                    <div [style.width]="w1"></div>
+                    <div [style.height]="h1"></div>
+                    <div [class.active]="a1"></div>
+                    <div [class.removed]="r1"></div>
+                  \`
+                })
+                export class MyComponent {
+                  w1 = '100px';
+                  h1 = '100px';
+                  a1 = true;
+                  r1 = true;
+                }
+
+                @NgModule({declarations: [MyComponent]})
+                export class MyModule {}
+            `
+        }
+      };
+
+      const template = `
+          …
+          template: function MyComponent_Template(rf, $ctx$) {
+            …
+            if (rf & 2) {
+              $r3$.ɵɵstyleProp("width", $ctx$.w1);
+              $r3$.ɵɵadvance(1);
+              $r3$.ɵɵstyleProp("height", $ctx$.h1);
+              $r3$.ɵɵadvance(1);
+              $r3$.ɵɵclassProp("active", $ctx$.a1);
+              $r3$.ɵɵadvance(1);
+              $r3$.ɵɵclassProp("removed", $ctx$.r1);
             }
           }
           `;
@@ -976,23 +1016,20 @@ describe('compiler compliance: styling', () => {
       };
 
       const template = `
-          const $e0_attrs$ = [${AttributeMarker.Classes}, "foo", "baz", ${AttributeMarker.Styles}, "width", "200px", "height", "500px"];
-          const $e0_classBindings$ = ["foo"];
-          const $e0_styleBindings$ = ["color"];
-          …
           hostBindings: function MyComponent_HostBindings(rf, ctx, elIndex) {
             if (rf & 1) {
-              $r3$.ɵelementHostAttrs(ctx, $e0_attrs$);
-              $r3$.ɵelementStyling($e0_classBindings$, $e0_styleBindings$, $r3$.ɵdefaultStyleSanitizer, ctx);
+              $r3$.ɵɵallocHostVars(6);
+              $r3$.ɵɵelementHostAttrs($e0_attrs$);
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(elIndex, ctx.myClass, ctx.myStyle, ctx);
-              $r3$.ɵelementStyleProp(elIndex, 0, ctx.myColorProp, null, ctx);
-              $r3$.ɵelementClassProp(elIndex, 0, ctx.myFooClass, ctx);
-              $r3$.ɵelementStylingApply(elIndex, ctx);
+              $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+              $r3$.ɵɵstyleMap(ctx.myStyle);
+              $r3$.ɵɵclassMap(ctx.myClass);
+              $r3$.ɵɵstyleProp("color", ctx.myColorProp);
+              $r3$.ɵɵclassProp("foo", ctx.myFooClass);
             }
           },
-          consts: 0,
+          decls: 0,
           vars: 0,
           `;
 
@@ -1038,23 +1075,21 @@ describe('compiler compliance: styling', () => {
       };
 
       const template = `
-          const _c0 = ["bar", "foo"];
-          const _c1 = ["height", "width"];
-          …
           hostBindings: function MyComponent_HostBindings(rf, ctx, elIndex) {
             if (rf & 1) {
-              $r3$.ɵelementStyling(_c0, _c1, $r3$.ɵdefaultStyleSanitizer, ctx);
+              $r3$.ɵɵallocHostVars(8);
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(elIndex, ctx.myClasses, ctx.myStyle, ctx);
-              $r3$.ɵelementStyleProp(elIndex, 0, ctx.myHeightProp, "pt", ctx);
-              $r3$.ɵelementStyleProp(elIndex, 1, ctx.myWidthProp, null, ctx);
-              $r3$.ɵelementClassProp(elIndex, 0, ctx.myBarClass, ctx);
-              $r3$.ɵelementClassProp(elIndex, 1, ctx.myFooClass, ctx);
-              $r3$.ɵelementStylingApply(elIndex, ctx);
+              $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+              $r3$.ɵɵstyleMap(ctx.myStyle);
+              $r3$.ɵɵclassMap(ctx.myClasses);
+              $r3$.ɵɵstyleProp("height", ctx.myHeightProp, "pt");
+              $r3$.ɵɵstyleProp("width", ctx.myWidthProp);
+              $r3$.ɵɵclassProp("bar", ctx.myBarClass);
+              $r3$.ɵɵclassProp("foo", ctx.myFooClass);
             }
           },
-          consts: 0,
+          decls: 0,
           vars: 0,
           `;
 
@@ -1100,37 +1135,31 @@ describe('compiler compliance: styling', () => {
          };
 
          const template = `
-            const _c2 = ["bar"];
-            const _c3 = ["height"];
-            …
             function MyComponent_Template(rf, ctx) {
               if (rf & 1) {
-                $r3$.ɵelementStart(0, "div");
-                $r3$.ɵelementStyling(_c2, _c3, $r3$.ɵdefaultStyleSanitizer);
-                $r3$.ɵelementEnd();
+                $r3$.ɵɵelement(0, "div");
               }
               if (rf & 2) {
-                $r3$.ɵelementStylingMap(0, ctx.myClassExp, ctx.myStyleExp);
-                $r3$.ɵelementStyleProp(0, 0, ctx.myHeightExp, null, true);
-                $r3$.ɵelementClassProp(0, 0, ctx.myBarClassExp, null, true);
-                $r3$.ɵelementStylingApply(0);
+                $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+                $r3$.ɵɵstyleMap(ctx.myStyleExp);
+                $r3$.ɵɵclassMap(ctx.myClassExp);
+                $r3$.ɵɵstyleProp("height", ctx.myHeightExp);
+                $r3$.ɵɵclassProp("bar", ctx.myBarClassExp);
               }
             },
           `;
 
          const hostBindings = `
-            const _c0 = ["foo"];
-            const _c1 = ["width"];
-            …
             hostBindings: function MyComponent_HostBindings(rf, ctx, elIndex) {
               if (rf & 1) {
-                $r3$.ɵelementStyling(_c0, _c1, $r3$.ɵdefaultStyleSanitizer, ctx);
+                $r3$.ɵɵallocHostVars(6);
               }
               if (rf & 2) {
-                $r3$.ɵelementStylingMap(elIndex, ctx.myClassExp, ctx.myStyleExp, ctx);
-                $r3$.ɵelementStyleProp(elIndex, 0, ctx.myWidthExp, null, ctx, true);
-                $r3$.ɵelementClassProp(elIndex, 0, ctx.myFooClassExp, ctx, true);
-                $r3$.ɵelementStylingApply(elIndex, ctx);
+                $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+                $r3$.ɵɵstyleMap(ctx.myStyleExp);
+                $r3$.ɵɵclassMap(ctx.myClassExp);
+                $r3$.ɵɵstyleProp("width", ctx.myWidthExp);
+                $r3$.ɵɵclassProp("foo", ctx.myFooClassExp);
               }
             },
           `;
@@ -1184,41 +1213,35 @@ describe('compiler compliance: styling', () => {
            }
          };
 
+         // NOTE: IF YOU ARE CHANGING THIS COMPILER SPEC, YOU MAY NEED TO CHANGE THE DIRECTIVE
+         // DEF THAT'S HARD-CODED IN `ng_class.ts`.
          const template = `
-          const $widthDir_classes$ = ["foo"];
-          const $widthDir_styles$ = ["width"];
-          const $heightDir_classes$ = ["bar"];
-          const $heightDir_styles$ = ["height"];
-          …
           function ClassDirective_HostBindings(rf, ctx, elIndex) {
             if (rf & 1) {
-              $r3$.ɵelementStyling(null, null, null, ctx);
+              $r3$.ɵɵallocHostVars(2);
             }
             if (rf & 2) {
-              $r3$.ɵelementStylingMap(elIndex, ctx.myClassMap, null, ctx);
-              $r3$.ɵelementStylingApply(elIndex, ctx);
+              $r3$.ɵɵclassMap(ctx.myClassMap);
             }
           }
           …
           function WidthDirective_HostBindings(rf, ctx, elIndex) {
             if (rf & 1) {
-              $r3$.ɵelementStyling($widthDir_classes$, $widthDir_styles$, null, ctx);
+              $r3$.ɵɵallocHostVars(2);
             }
             if (rf & 2) {
-              $r3$.ɵelementStyleProp(elIndex, 0, ctx.myWidth, null, ctx);
-              $r3$.ɵelementClassProp(elIndex, 0, ctx.myFooClass, ctx);
-              $r3$.ɵelementStylingApply(elIndex, ctx);
+              $r3$.ɵɵstyleProp("width", ctx.myWidth);
+              $r3$.ɵɵclassProp("foo", ctx.myFooClass);
             }
           }
           …
           function HeightDirective_HostBindings(rf, ctx, elIndex) {
             if (rf & 1) {
-              $r3$.ɵelementStyling($heightDir_classes$, $heightDir_styles$, null, ctx);
+              $r3$.ɵɵallocHostVars(2);
             }
             if (rf & 2) {
-              $r3$.ɵelementStyleProp(elIndex, 0, ctx.myHeight, null, ctx);
-              $r3$.ɵelementClassProp(elIndex, 0, ctx.myBarClass, ctx);
-              $r3$.ɵelementStylingApply(elIndex, ctx);
+              $r3$.ɵɵstyleProp("height", ctx.myHeight);
+              $r3$.ɵɵclassProp("bar", ctx.myBarClass);
             }
           }
           …
@@ -1227,6 +1250,217 @@ describe('compiler compliance: styling', () => {
          const result = compile(files, angularFiles);
          expectEmit(result.source, template, 'Incorrect template');
        });
+  });
+
+  describe('interpolations', () => {
+    it('should generate the proper update instructions for interpolated classes', () => {
+      const files = {
+        app: {
+          'spec.ts': `
+            import {Component} from '@angular/core';
+
+            @Component({
+              template: \`
+                <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h{{eight}}i{{nine}}j"></div>
+                <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h{{eight}}i"></div>
+                <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h"></div>
+                <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g"></div>
+                <div class="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f"></div>
+                <div class="a{{one}}b{{two}}c{{three}}d{{four}}e"></div>
+                <div class="a{{one}}b{{two}}c{{three}}d"></div>
+                <div class="a{{one}}b{{two}}c"></div>
+                <div class="a{{one}}b"></div>
+                <div class="{{one}}"></div>
+              \`
+            })
+            export class MyComponent {
+            }
+          `
+        }
+      };
+
+      const template = `
+      …
+        if (rf & 2) {
+          $r3$.ɵɵclassMapInterpolateV(["a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f", ctx.six, "g", ctx.seven, "h", ctx.eight, "i", ctx.nine, "j"]);
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMapInterpolate8("a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f", ctx.six, "g", ctx.seven, "h", ctx.eight, "i");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMapInterpolate7("a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f", ctx.six, "g", ctx.seven, "h");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMapInterpolate6("a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f", ctx.six, "g");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMapInterpolate5("a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMapInterpolate4("a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMapInterpolate3("a", ctx.one, "b", ctx.two, "c", ctx.three, "d");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMapInterpolate2("a", ctx.one, "b", ctx.two, "c");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMapInterpolate1("a", ctx.one, "b");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵclassMap(ctx.one);
+      }
+      …
+      `;
+      const result = compile(files, angularFiles);
+
+      expectEmit(result.source, template, 'Incorrect handling of interpolated classes');
+    });
+
+    it('should throw for interpolations inside `style`', () => {
+      const files = {
+        app: {
+          'spec.ts': `
+            import {Component} from '@angular/core';
+
+            @Component({
+              template: '<div style="color:{{red}}"></div>'
+            })
+            export class MyComponent {
+            }
+          `
+        }
+      };
+
+      expect(() => compile(files, angularFiles)).toThrowError(/Unexpected interpolation/);
+    });
+
+    it('should throw for interpolations inside individual class bindings', () => {
+      const files = {
+        app: {
+          'spec.ts': `
+            import {Component} from '@angular/core';
+
+            @Component({
+              template: '<div class.something="{{isEnabled}}"></div>'
+            })
+            export class MyComponent {
+            }
+          `
+        }
+      };
+
+      expect(() => compile(files, angularFiles)).toThrowError(/Unexpected interpolation/);
+    });
+
+    it('should generate the proper update instructions for interpolated style properties', () => {
+      const files = {
+        app: {
+          'spec.ts': `
+            import {Component} from '@angular/core';
+
+            @Component({
+              template: \`
+                <div style.color="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h{{eight}}i{{nine}}j"></div>
+                <div style.color="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h{{eight}}i"></div>
+                <div style.color="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g{{seven}}h"></div>
+                <div style.color="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f{{six}}g"></div>
+                <div style.color="a{{one}}b{{two}}c{{three}}d{{four}}e{{five}}f"></div>
+                <div style.color="a{{one}}b{{two}}c{{three}}d{{four}}e"></div>
+                <div style.color="a{{one}}b{{two}}c{{three}}d"></div>
+                <div style.color="a{{one}}b{{two}}c"></div>
+                <div style.color="a{{one}}b"></div>
+                <div style.color="{{one}}"></div>
+              \`
+            })
+            export class MyComponent {
+            }
+          `
+        }
+      };
+
+      const template = `
+      …
+        if (rf & 2) {
+          $r3$.ɵɵstylePropInterpolateV("color", ["a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f", ctx.six, "g", ctx.seven, "h", ctx.eight, "i", ctx.nine, "j"]);
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstylePropInterpolate8("color", "a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f", ctx.six, "g", ctx.seven, "h", ctx.eight, "i");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstylePropInterpolate7("color", "a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f", ctx.six, "g", ctx.seven, "h");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstylePropInterpolate6("color", "a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f", ctx.six, "g");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstylePropInterpolate5("color", "a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e", ctx.five, "f");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstylePropInterpolate4("color", "a", ctx.one, "b", ctx.two, "c", ctx.three, "d", ctx.four, "e");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstylePropInterpolate3("color", "a", ctx.one, "b", ctx.two, "c", ctx.three, "d");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstylePropInterpolate2("color", "a", ctx.one, "b", ctx.two, "c");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstylePropInterpolate1("color", "a", ctx.one, "b");
+          $r3$.ɵɵadvance(1);
+          $r3$.ɵɵstyleProp("color", ctx.one);
+      }
+      …
+      `;
+      const result = compile(files, angularFiles);
+
+      expectEmit(result.source, template, 'Incorrect handling of interpolated style properties');
+    });
+
+    it('should generate update instructions for interpolated style properties with a suffix',
+       () => {
+         const files = {
+           app: {
+             'spec.ts': `
+            import {Component} from '@angular/core';
+
+            @Component({
+              template: \`
+                <div style.width.px="a{{one}}b{{two}}c"></div>
+              \`
+            })
+            export class MyComponent {
+            }
+          `
+           }
+         };
+
+         const template = `
+            …
+            if (rf & 2) {
+              $r3$.ɵɵstylePropInterpolate2("width", "a", ctx.one, "b", ctx.two, "c", "px");
+            }
+            …
+          `;
+         const result = compile(files, angularFiles);
+
+         expectEmit(result.source, template, 'Incorrect handling of interpolated style properties');
+       });
+
+    it('should generate update instructions for interpolated style properties with !important',
+       () => {
+         const files = {
+           app: {
+             'spec.ts': `
+            import {Component} from '@angular/core';
+
+            @Component({
+              template: \`
+                <div style.width!important="a{{one}}b{{two}}c"></div>
+              \`
+            })
+            export class MyComponent {
+            }
+          `
+           }
+         };
+
+         const template = `
+            …
+            if (rf & 2) {
+              $r3$.ɵɵstylePropInterpolate2("width", "a", ctx.one, "b", ctx.two, "c");
+            }
+            …
+          `;
+         const result = compile(files, angularFiles);
+
+         expectEmit(result.source, template, 'Incorrect handling of interpolated style properties');
+       });
+
   });
 
   it('should count only non-style and non-class host bindings on Components', () => {
@@ -1272,15 +1506,14 @@ describe('compiler compliance: styling', () => {
       …
       hostBindings: function MyComponent_HostBindings(rf, ctx, elIndex) {
         if (rf & 1) {
-          $r3$.ɵallocHostVars(2);
-          $r3$.ɵelementHostAttrs(ctx, $_c0$);
-          $r3$.ɵelementStyling(null, null, $r3$.ɵdefaultStyleSanitizer, ctx);
+          $r3$.ɵɵallocHostVars(6);
+          $r3$.ɵɵelementHostAttrs($_c0$);
         }
         if (rf & 2) {
-          $r3$.ɵelementProperty(elIndex, "id", $r3$.ɵbind(ctx.id), null, true);
-          $r3$.ɵelementProperty(elIndex, "title", $r3$.ɵbind(ctx.title), null, true);
-          $r3$.ɵelementStylingMap(elIndex, ctx.myClass, ctx.myStyle, ctx);
-          $r3$.ɵelementStylingApply(elIndex, ctx);
+          $r3$.ɵɵhostProperty("id", ctx.id)("title", ctx.title);
+          $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+          $r3$.ɵɵstyleMap(ctx.myStyle);
+          $r3$.ɵɵclassMap(ctx.myClass);
         }
       }
     `;
@@ -1314,25 +1547,188 @@ describe('compiler compliance: styling', () => {
     };
 
     const template = `
-      const $_c0$ = ["foo"];
-      const $_c1$ = ["width"];
-      …
       hostBindings: function WidthDirective_HostBindings(rf, ctx, elIndex) {
         if (rf & 1) {
-          $r3$.ɵallocHostVars(2);
-          $r3$.ɵelementStyling($_c0$, $_c1$, null, ctx);
+          $r3$.ɵɵallocHostVars(4);
         }
         if (rf & 2) {
-          $r3$.ɵelementProperty(elIndex, "id", $r3$.ɵbind(ctx.id), null, true);
-          $r3$.ɵelementProperty(elIndex, "title", $r3$.ɵbind(ctx.title), null, true);
-          $r3$.ɵelementStyleProp(elIndex, 0, ctx.myWidth, null, ctx);
-          $r3$.ɵelementClassProp(elIndex, 0, ctx.myFooClass, ctx);
-          $r3$.ɵelementStylingApply(elIndex, ctx);
+          $r3$.ɵɵhostProperty("id", ctx.id)("title", ctx.title);
+          $r3$.ɵɵstyleProp("width", ctx.myWidth);
+          $r3$.ɵɵclassProp("foo", ctx.myFooClass);
         }
       }
     `;
 
     const result = compile(files, angularFiles);
     expectEmit(result.source, template, 'Incorrect template');
+  });
+
+  describe('new styling refactor', () => {
+    it('should generate a `styleSanitizer` instruction when one or more sanitizable style properties are statically detected',
+       () => {
+         const files = {
+           app: {
+             'spec.ts': `
+            import {Component, NgModule} from '@angular/core';
+
+            @Component({
+              selector: 'my-app',
+              template: \`
+                <div [style.background-image]="bgExp"></div>
+              \`
+            })
+            export class MyAppComp {
+              bgExp = '';
+            }
+          `
+           }
+         };
+
+         const template = `
+        template: function MyAppComp_Template(rf, ctx) {
+          …
+          if (rf & 2) {
+            $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+            $r3$.ɵɵstyleProp("background-image", ctx.bgExp);
+          }
+          …
+        }
+      `;
+
+         const result = compile(files, angularFiles);
+         expectEmit(result.source, template, 'Incorrect template');
+       });
+
+    it('should generate a `styleSanitizer` instruction when a `styleMap` instruction is used',
+       () => {
+         const files = {
+           app: {
+             'spec.ts': `
+            import {Component, NgModule} from '@angular/core';
+
+            @Component({
+              selector: 'my-app',
+              template: \`
+                <div [style]="mapExp"></div>
+              \`
+            })
+            export class MyAppComp {
+              mapExp = {};
+            }
+          `
+           }
+         };
+
+         const template = `
+        template: function MyAppComp_Template(rf, ctx) {
+          …
+          if (rf & 2) {
+            $r3$.ɵɵstyleSanitizer($r3$.ɵɵdefaultStyleSanitizer);
+            $r3$.ɵɵstyleMap(ctx.mapExp);
+          }
+          …
+        }
+      `;
+
+         const result = compile(files, angularFiles);
+         expectEmit(result.source, template, 'Incorrect template');
+       });
+
+    it('shouldn\'t generate a `styleSanitizer` instruction when class-based instructions are used',
+       () => {
+         const files = {
+           app: {
+             'spec.ts': `
+            import {Component, NgModule} from '@angular/core';
+
+            @Component({
+              selector: 'my-app',
+              template: \`
+                <div [class]="mapExp" [class.name]="nameExp"></div>
+              \`
+            })
+            export class MyAppComp {
+              mapExp = {};
+              nameExp = true;
+            }
+          `
+           }
+         };
+
+         const template = `
+        template: function MyAppComp_Template(rf, ctx) {
+          …
+          if (rf & 2) {
+            $r3$.ɵɵclassMap(ctx.mapExp);
+            $r3$.ɵɵclassProp("name", ctx.nameExp);
+          }
+          …
+        }
+      `;
+
+         const result = compile(files, angularFiles);
+         expectEmit(result.source, template, 'Incorrect template');
+       });
+
+    it('should generate the correct amount of host bindings when styling is present', () => {
+      const files = {
+        app: {
+          'spec.ts': `
+            import {Component, Directive, NgModule} from '@angular/core';
+
+            @Directive({
+              selector: '[my-dir]',
+              host: {
+                '[title]': 'title',
+                '[class.foo]': 'foo',
+                '[@anim]': \`{
+                  value: _animValue,
+                  params: {
+                    param1: _animParam1,
+                    param2: _animParam2
+                  }
+                }\`
+              }
+            })
+            export class MyDir {
+              title = '';
+              foo = true;
+              _animValue = null;
+              _animParam1 = null;
+              _animParam2 = null;
+            }
+
+            @Component({
+              selector: 'my-app',
+              template: \`
+                <div my-dir></div>
+              \`
+            })
+            export class MyAppComp {}
+
+            @NgModule({declarations: [MyAppComp, MyDir]})
+            export class MyModule {}
+          `
+        }
+      };
+
+      const template = `
+          hostBindings: function MyDir_HostBindings(rf, ctx, elIndex) {
+            …
+            $r3$.ɵɵallocHostVars(9);
+            …
+            if (rf & 2) {
+              $r3$.ɵɵhostProperty("title", ctx.title);
+              $r3$.ɵɵupdateSyntheticHostBinding("@anim",
+                $r3$.ɵɵpureFunction2(6, _c1, ctx._animValue,
+                $r3$.ɵɵpureFunction2(3, _c0, ctx._animParam1, ctx._animParam2)));
+              $r3$.ɵɵclassProp("foo", ctx.foo);
+            }
+          }
+      `;
+
+      const result = compile(files, angularFiles);
+      expectEmit(result.source, template, 'Incorrect template');
+    });
   });
 });

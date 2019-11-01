@@ -7,9 +7,11 @@
  */
 
 import {ArrayType, AssertNotNull, BinaryOperator, BinaryOperatorExpr, BuiltinType, BuiltinTypeName, CastExpr, ClassStmt, CommaExpr, CommentStmt, ConditionalExpr, DeclareFunctionStmt, DeclareVarStmt, Expression, ExpressionStatement, ExpressionType, ExpressionVisitor, ExternalExpr, ExternalReference, FunctionExpr, IfStmt, InstantiateExpr, InvokeFunctionExpr, InvokeMethodExpr, JSDocCommentStmt, LiteralArrayExpr, LiteralExpr, LiteralMapExpr, MapType, NotExpr, ReadKeyExpr, ReadPropExpr, ReadVarExpr, ReturnStatement, Statement, StatementVisitor, StmtModifier, ThrowStmt, TryCatchStmt, Type, TypeVisitor, TypeofExpr, WrappedNodeExpr, WriteKeyExpr, WritePropExpr, WriteVarExpr} from '@angular/compiler';
+import {LocalizedString} from '@angular/compiler/src/output/output_ast';
+import {serializeI18nHead, serializeI18nTemplatePart} from '@angular/compiler/src/render3/view/i18n/meta';
 import * as ts from 'typescript';
 
-import {ImportRewriter, NoopImportRewriter} from '../../imports';
+import {DefaultImportRecorder, ImportRewriter, NOOP_DEFAULT_IMPORT_RECORDER, NoopImportRewriter} from '../../imports';
 
 export class Context {
   constructor(readonly isStatement: boolean) {}
@@ -38,18 +40,35 @@ const BINARY_OPERATORS = new Map<BinaryOperator, ts.BinaryOperator>([
   [BinaryOperator.Plus, ts.SyntaxKind.PlusToken],
 ]);
 
+/**
+ * Information about an import that has been added to a module.
+ */
+export interface Import {
+  /** The name of the module that has been imported. */
+  specifier: string;
+  /** The alias of the imported module. */
+  qualifier: string;
+}
 
+/**
+ * The symbol name and import namespace of an imported symbol,
+ * which has been registered through the ImportManager.
+ */
+export interface NamedImport {
+  /** The import namespace containing this imported symbol. */
+  moduleImport: string|null;
+  /** The (possibly rewritten) name of the imported symbol. */
+  symbol: string;
+}
 
 export class ImportManager {
-  private moduleToIndex = new Map<string, string>();
-  private importedModules = new Set<string>();
+  private specifierToIdentifier = new Map<string, string>();
   private nextIndex = 0;
 
   constructor(protected rewriter: ImportRewriter = new NoopImportRewriter(), private prefix = 'i') {
   }
 
-  generateNamedImport(moduleName: string, originalSymbol: string):
-      {moduleImport: string | null, symbol: string} {
+  generateNamedImport(moduleName: string, originalSymbol: string): NamedImport {
     // First, rewrite the symbol name.
     const symbol = this.rewriter.rewriteSymbol(originalSymbol, moduleName);
 
@@ -61,29 +80,37 @@ export class ImportManager {
     }
 
     // If not, this symbol will be imported. Allocate a prefix for the imported module if needed.
-    if (!this.moduleToIndex.has(moduleName)) {
-      this.moduleToIndex.set(moduleName, `${this.prefix}${this.nextIndex++}`);
+
+    if (!this.specifierToIdentifier.has(moduleName)) {
+      this.specifierToIdentifier.set(moduleName, `${this.prefix}${this.nextIndex++}`);
     }
-    const moduleImport = this.moduleToIndex.get(moduleName) !;
+    const moduleImport = this.specifierToIdentifier.get(moduleName) !;
 
     return {moduleImport, symbol};
   }
 
-  getAllImports(contextPath: string): {name: string, as: string}[] {
-    return Array.from(this.moduleToIndex.keys()).map(name => {
-      const as = this.moduleToIndex.get(name) !;
-      name = this.rewriter.rewriteSpecifier(name, contextPath);
-      return {name, as};
+  getAllImports(contextPath: string): Import[] {
+    const imports: {specifier: string, qualifier: string}[] = [];
+    this.specifierToIdentifier.forEach((qualifier, specifier) => {
+      specifier = this.rewriter.rewriteSpecifier(specifier, contextPath);
+      imports.push({specifier, qualifier});
     });
+    return imports;
   }
 }
 
-export function translateExpression(expression: Expression, imports: ImportManager): ts.Expression {
-  return expression.visitExpression(new ExpressionTranslatorVisitor(imports), new Context(false));
+export function translateExpression(
+    expression: Expression, imports: ImportManager,
+    defaultImportRecorder: DefaultImportRecorder): ts.Expression {
+  return expression.visitExpression(
+      new ExpressionTranslatorVisitor(imports, defaultImportRecorder), new Context(false));
 }
 
-export function translateStatement(statement: Statement, imports: ImportManager): ts.Statement {
-  return statement.visitStatement(new ExpressionTranslatorVisitor(imports), new Context(true));
+export function translateStatement(
+    statement: Statement, imports: ImportManager,
+    defaultImportRecorder: DefaultImportRecorder): ts.Statement {
+  return statement.visitStatement(
+      new ExpressionTranslatorVisitor(imports, defaultImportRecorder), new Context(true));
 }
 
 export function translateType(type: Type, imports: ImportManager): ts.TypeNode {
@@ -92,7 +119,8 @@ export function translateType(type: Type, imports: ImportManager): ts.TypeNode {
 
 class ExpressionTranslatorVisitor implements ExpressionVisitor, StatementVisitor {
   private externalSourceFiles = new Map<string, ts.SourceMapSource>();
-  constructor(private imports: ImportManager) {}
+  constructor(
+      private imports: ImportManager, private defaultImportRecorder: DefaultImportRecorder) {}
 
   visitDeclareVarStmt(stmt: DeclareVarStmt, context: Context): ts.VariableStatement {
     const nodeFlags = stmt.hasModifier(StmtModifier.Final) ? ts.NodeFlags.Const : ts.NodeFlags.None;
@@ -223,6 +251,10 @@ class ExpressionTranslatorVisitor implements ExpressionVisitor, StatementVisitor
     return expr;
   }
 
+  visitLocalizedString(ast: LocalizedString, context: Context): ts.Expression {
+    return visitLocalizedString(ast, context, this);
+  }
+
   visitExternalExpr(ast: ExternalExpr, context: Context): ts.PropertyAccessExpression
       |ts.Identifier {
     if (ast.value.moduleName === null || ast.value.name === null) {
@@ -238,10 +270,10 @@ class ExpressionTranslatorVisitor implements ExpressionVisitor, StatementVisitor
     }
   }
 
-  visitConditionalExpr(ast: ConditionalExpr, context: Context): ts.ParenthesizedExpression {
-    return ts.createParen(ts.createConditional(
+  visitConditionalExpr(ast: ConditionalExpr, context: Context): ts.ConditionalExpression {
+    return ts.createConditional(
         ast.condition.visitExpression(this, context), ast.trueCase.visitExpression(this, context),
-        ast.falseCase !.visitExpression(this, context)));
+        ast.falseCase !.visitExpression(this, context));
   }
 
   visitNotExpr(ast: NotExpr, context: Context): ts.PrefixUnaryExpression {
@@ -270,10 +302,9 @@ class ExpressionTranslatorVisitor implements ExpressionVisitor, StatementVisitor
     if (!BINARY_OPERATORS.has(ast.operator)) {
       throw new Error(`Unknown binary operator: ${BinaryOperator[ast.operator]}`);
     }
-    const binEx = ts.createBinary(
+    return ts.createBinary(
         ast.lhs.visitExpression(this, context), BINARY_OPERATORS.get(ast.operator) !,
         ast.rhs.visitExpression(this, context));
-    return ast.parens ? ts.createParen(binEx) : binEx;
   }
 
   visitReadPropExpr(ast: ReadPropExpr, context: Context): ts.PropertyAccessExpression {
@@ -306,7 +337,12 @@ class ExpressionTranslatorVisitor implements ExpressionVisitor, StatementVisitor
     throw new Error('Method not implemented.');
   }
 
-  visitWrappedNodeExpr(ast: WrappedNodeExpr<any>, context: Context): any { return ast.node; }
+  visitWrappedNodeExpr(ast: WrappedNodeExpr<any>, context: Context): any {
+    if (ts.isIdentifier(ast.node)) {
+      this.defaultImportRecorder.recordUsedIdentifier(ast.node);
+    }
+    return ast.node;
+  }
 
   visitTypeofExpr(ast: TypeofExpr, context: Context): ts.TypeOfExpression {
     return ts.createTypeOf(ast.expr.visitExpression(this, context));
@@ -405,6 +441,10 @@ export class TypeTranslatorVisitor implements ExpressionVisitor, TypeVisitor {
     return ts.createLiteral(ast.value as string);
   }
 
+  visitLocalizedString(ast: LocalizedString, context: Context): ts.Expression {
+    return visitLocalizedString(ast, context, this);
+  }
+
   visitExternalExpr(ast: ExternalExpr, context: Context): ts.TypeNode {
     if (ast.value.moduleName === null || ast.value.name === null) {
       throw new Error(`Import unknown module or symbol`);
@@ -478,16 +518,35 @@ export class TypeTranslatorVisitor implements ExpressionVisitor, TypeVisitor {
   }
 
   visitTypeofExpr(ast: TypeofExpr, context: Context): ts.TypeQueryNode {
-    let expr = translateExpression(ast.expr, this.imports);
+    let expr = translateExpression(ast.expr, this.imports, NOOP_DEFAULT_IMPORT_RECORDER);
     return ts.createTypeQueryNode(expr as ts.Identifier);
   }
 }
 
-function entityNameToExpr(entity: ts.EntityName): ts.Expression {
-  if (ts.isIdentifier(entity)) {
-    return entity;
+/**
+ * A helper to reduce duplication, since this functionality is required in both
+ * `ExpressionTranslatorVisitor` and `TypeTranslatorVisitor`.
+ */
+function visitLocalizedString(ast: LocalizedString, context: Context, visitor: ExpressionVisitor) {
+  let template: ts.TemplateLiteral;
+  const metaBlock = serializeI18nHead(ast.metaBlock, ast.messageParts[0]);
+  if (ast.messageParts.length === 1) {
+    template = ts.createNoSubstitutionTemplateLiteral(metaBlock);
+  } else {
+    const head = ts.createTemplateHead(metaBlock);
+    const spans: ts.TemplateSpan[] = [];
+    for (let i = 1; i < ast.messageParts.length; i++) {
+      const resolvedExpression = ast.expressions[i - 1].visitExpression(visitor, context);
+      const templatePart =
+          serializeI18nTemplatePart(ast.placeHolderNames[i - 1], ast.messageParts[i]);
+      const templateMiddle = ts.createTemplateMiddle(templatePart);
+      spans.push(ts.createTemplateSpan(resolvedExpression, templateMiddle));
+    }
+    if (spans.length > 0) {
+      // The last span is supposed to have a tail rather than a middle
+      spans[spans.length - 1].literal.kind = ts.SyntaxKind.TemplateTail;
+    }
+    template = ts.createTemplateExpression(head, spans);
   }
-  const {left, right} = entity;
-  const leftExpr = ts.isIdentifier(left) ? left : entityNameToExpr(left);
-  return ts.createPropertyAccess(leftExpr, right);
+  return ts.createTaggedTemplate(ts.createIdentifier('$localize'), template);
 }

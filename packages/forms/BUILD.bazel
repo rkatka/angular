@@ -1,6 +1,6 @@
-package(default_visibility = ["//visibility:public"])
-
 load("//tools:defaults.bzl", "ng_module", "ng_package")
+
+package(default_visibility = ["//visibility:public"])
 
 ng_module(
     name = "forms",
@@ -10,17 +10,18 @@ ng_module(
             "src/**/*.ts",
         ],
     ),
+    bundle_dts = True,
     deps = [
         "//packages/core",
         "//packages/platform-browser",
-        "@ngdeps//rxjs",
+        "@npm//rxjs",
     ],
 )
 
 ng_package(
     name = "npm_package",
     srcs = ["package.json"],
-    entry_point = "packages/forms/index.js",
+    entry_point = ":index.ts",
     tags = [
         "release-with-framework",
     ],

@@ -47,12 +47,12 @@ export const DISABLED = 'DISABLED';
 function _find(control: AbstractControl, path: Array<string|number>| string, delimiter: string) {
   if (path == null) return null;
 
-  if (!(path instanceof Array)) {
-    path = (<string>path).split(delimiter);
+  if (!Array.isArray(path)) {
+    path = path.split(delimiter);
   }
-  if (path instanceof Array && (path.length === 0)) return null;
+  if (Array.isArray(path) && path.length === 0) return null;
 
-  return (<Array<string|number>>path).reduce((v: AbstractControl, name) => {
+  return path.reduce((v: AbstractControl | null, name) => {
     if (v instanceof FormGroup) {
       return v.controls.hasOwnProperty(name as string) ? v.controls[name] : null;
     }
@@ -159,7 +159,9 @@ export abstract class AbstractControl {
    * The current value of the control.
    *
    * * For a `FormControl`, the current value.
-   * * For a `FormGroup`, the values of enabled controls as an object
+   * * For an enabled `FormGroup`, the values of enabled controls as an object
+   * with a key-value pair for each member of the group.
+   * * For a disabled `FormGroup`, the values of all controls as an object
    * with a key-value pair for each member of the group.
    * * For a `FormArray`, the values of enabled controls as an array.
    *
@@ -320,6 +322,10 @@ export abstract class AbstractControl {
   /**
    * Sets the synchronous validators that are active on this control.  Calling
    * this overwrites any existing sync validators.
+   *
+   * When you add or remove a validator at run time, you must call
+   * `updateValueAndValidity()` for the new validation to take effect.
+   *
    */
   setValidators(newValidator: ValidatorFn|ValidatorFn[]|null): void {
     this.validator = coerceToValidator(newValidator);
@@ -328,6 +334,10 @@ export abstract class AbstractControl {
   /**
    * Sets the async validators that are active on this control. Calling this
    * overwrites any existing async validators.
+   *
+   * When you add or remove a validator at run time, you must call
+   * `updateValueAndValidity()` for the new validation to take effect.
+   *
    */
   setAsyncValidators(newValidator: AsyncValidatorFn|AsyncValidatorFn[]|null): void {
     this.asyncValidator = coerceToAsyncValidator(newValidator);
@@ -335,11 +345,19 @@ export abstract class AbstractControl {
 
   /**
    * Empties out the sync validator list.
+   *
+   * When you add or remove a validator at run time, you must call
+   * `updateValueAndValidity()` for the new validation to take effect.
+   *
    */
   clearValidators(): void { this.validator = null; }
 
   /**
    * Empties out the async validator list.
+   *
+   * When you add or remove a validator at run time, you must call
+   * `updateValueAndValidity()` for the new validation to take effect.
+   *
    */
   clearAsyncValidators(): void { this.asyncValidator = null; }
 
@@ -1012,7 +1030,7 @@ export class FormControl extends AbstractControl {
    * Sets a new value for the form control.
    *
    * @param value The new value for the control.
-   * @param options Configuration options that determine how the control proopagates changes
+   * @param options Configuration options that determine how the control propagates changes
    * and emits events when the value changes.
    * The configuration options are passed to the {@link AbstractControl#updateValueAndValidity
    * updateValueAndValidity} method.
@@ -1320,7 +1338,7 @@ export class FormGroup extends AbstractControl {
    * Reports false for disabled controls. If you'd like to check for existence in the group
    * only, use {@link AbstractControl#get get} instead.
    *
-   * @param name The control name to check for existence in the collection
+   * @param controlName The control name to check for existence in the collection
    *
    * @returns false for disabled controls, true otherwise.
    */
@@ -1348,7 +1366,7 @@ export class FormGroup extends AbstractControl {
    * ```
    *
    * @throws When strict checks fail, such as setting the value of a control
-   * that doesn't exist or if you excluding the value of a control.
+   * that doesn't exist or if you exclude a value of a control that does exist.
    *
    * @param value The new value for the control that matches the structure of the group.
    * @param options Configuration options that determine how the control propagates changes
@@ -1425,7 +1443,7 @@ export class FormGroup extends AbstractControl {
    * is a standalone value or a form state object with both a value and a disabled
    * status.
    *
-   * @param formState Resets the control with an initial value,
+   * @param value Resets the control with an initial value,
    * or an object that defines the initial value and disabled state.
    *
    * @param options Configuration options that determine how the control propagates changes
@@ -1639,7 +1657,7 @@ export class FormGroup extends AbstractControl {
  *
  * ### Adding or removing controls from a form array
  *
- * To change the controls in the array, use the `push`, `insert`, or `removeAt` methods
+ * To change the controls in the array, use the `push`, `insert`, `removeAt` or `clear` methods
  * in `FormArray` itself. These methods ensure the controls are properly tracked in the
  * form's hierarchy. Do not modify the array of `AbstractControl`s used to instantiate
  * the `FormArray` directly, as that result in strange and unexpected behavior such
@@ -1893,6 +1911,43 @@ export class FormArray extends AbstractControl {
     return this.controls.map((control: AbstractControl) => {
       return control instanceof FormControl ? control.value : (<any>control).getRawValue();
     });
+  }
+
+  /**
+   * Remove all controls in the `FormArray`.
+   *
+   * @usageNotes
+   * ### Remove all elements from a FormArray
+   *
+   * ```ts
+   * const arr = new FormArray([
+   *    new FormControl(),
+   *    new FormControl()
+   * ]);
+   * console.log(arr.length);  // 2
+   *
+   * arr.clear();
+   * console.log(arr.length);  // 0
+   * ```
+   *
+   * It's a simpler and more efficient alternative to removing all elements one by one:
+   *
+   * ```ts
+   * const arr = new FormArray([
+   *    new FormControl(),
+   *    new FormControl()
+   * ]);
+   *
+   * while (arr.length) {
+   *    arr.removeAt(0);
+   * }
+   * ```
+   */
+  clear(): void {
+    if (this.controls.length < 1) return;
+    this._forEachChild((control: AbstractControl) => control._registerOnCollectionChange(() => {}));
+    this.controls.splice(0);
+    this.updateValueAndValidity();
   }
 
   /** @internal */

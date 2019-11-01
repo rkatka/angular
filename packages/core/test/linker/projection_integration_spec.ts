@@ -6,12 +6,12 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Component, ComponentFactoryResolver, ComponentRef, Directive, ElementRef, Injector, NgModule, OnInit, TemplateRef, ViewChild, ViewContainerRef, ViewEncapsulation} from '@angular/core';
+import {CommonModule, ɵgetDOM as getDOM} from '@angular/common';
+import {Component, ComponentFactoryResolver, ComponentRef, Directive, ElementRef, Injector, Input, NO_ERRORS_SCHEMA, NgModule, OnInit, TemplateRef, ViewChild, ViewContainerRef, ViewEncapsulation} from '@angular/core';
 import {ComponentFixture, TestBed} from '@angular/core/testing';
 import {By} from '@angular/platform-browser/src/dom/debug/by';
-import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
-import {fixmeIvy} from '@angular/private/testing';
+import {modifiedInIvy} from '@angular/private/testing';
 
 describe('projection', () => {
   beforeEach(() => TestBed.configureTestingModule({declarations: [MainComp, OtherComp, Simple]}));
@@ -110,6 +110,79 @@ describe('projection', () => {
 
     expect(main.nativeElement).toHaveText('(A, BC)');
   });
+
+  it('should support passing projectable nodes via factory function', () => {
+    @Component({
+      selector: 'multiple-content-tags',
+      template: '(<ng-content SELECT="h1"></ng-content>, <ng-content></ng-content>)',
+    })
+    class MultipleContentTagsComponent {
+    }
+
+    @NgModule({
+      declarations: [MultipleContentTagsComponent],
+      entryComponents: [MultipleContentTagsComponent],
+      schemas: [NO_ERRORS_SCHEMA],
+    })
+    class MyModule {
+    }
+
+    TestBed.configureTestingModule({imports: [MyModule]});
+    const injector: Injector = TestBed.inject(Injector);
+
+    const componentFactoryResolver: ComponentFactoryResolver =
+        injector.get(ComponentFactoryResolver);
+    const componentFactory =
+        componentFactoryResolver.resolveComponentFactory(MultipleContentTagsComponent);
+    expect(componentFactory.ngContentSelectors).toEqual(['h1', '*']);
+
+
+    const nodeOne = getDOM().getDefaultDocument().createTextNode('one');
+    const nodeTwo = getDOM().getDefaultDocument().createTextNode('two');
+    const component = componentFactory.create(injector, [[nodeOne], [nodeTwo]]);
+    expect(component.location.nativeElement).toHaveText('(one, two)');
+  });
+
+  modifiedInIvy(
+      'FW-886: `projectableNodes` passed to a componentFactory should be in the order of' +
+      'declaration. In Ivy, the ng-content slots are determined with breadth-first search.')
+      .it('should respect order of declaration for projectable nodes', () => {
+        @Component({
+          selector: 'multiple-content-tags',
+          template: `
+          1<ng-content select="h1"></ng-content>
+          2<ng-template [ngIf]="true"><ng-content></ng-content></ng-template>
+          3<ng-content select="h2"></ng-content>
+        `,
+        })
+        class MultipleContentTagsComponent {
+        }
+
+        @NgModule({
+          declarations: [MultipleContentTagsComponent],
+          entryComponents: [MultipleContentTagsComponent],
+          imports: [CommonModule],
+          schemas: [NO_ERRORS_SCHEMA],
+        })
+        class MyModule {
+        }
+
+        TestBed.configureTestingModule({imports: [MyModule]});
+        const injector: Injector = TestBed.inject(Injector);
+
+        const componentFactoryResolver: ComponentFactoryResolver =
+            injector.get(ComponentFactoryResolver);
+        const componentFactory =
+            componentFactoryResolver.resolveComponentFactory(MultipleContentTagsComponent);
+        expect(componentFactory.ngContentSelectors).toEqual(['h1', '*', 'h2']);
+
+        const nodeOne = getDOM().getDefaultDocument().createTextNode('one');
+        const nodeTwo = getDOM().getDefaultDocument().createTextNode('two');
+        const nodeThree = getDOM().getDefaultDocument().createTextNode('three');
+        const component = componentFactory.create(injector, [[nodeOne], [nodeTwo], [nodeThree]]);
+        component.changeDetectorRef.detectChanges();
+        expect(component.location.nativeElement.textContent.trim()).toBe('1one 2two 3three');
+      });
 
   it('should redistribute only direct children', () => {
     TestBed.configureTestingModule({declarations: [MultipleContentTagsComponent]});
@@ -222,6 +295,44 @@ describe('projection', () => {
     viewportDirective.hide();
     main.detectChanges();
     expect(main.nativeElement).toHaveText('(, BC)');
+  });
+
+  it('should redistribute non-continuous blocks of nodes when the shadow dom changes', () => {
+    @Component({
+      selector: 'child',
+      template:
+          `<ng-content></ng-content>(<ng-template [ngIf]="showing"><ng-content select="div"></ng-content></ng-template>)`
+    })
+    class Child {
+      @Input() showing !: boolean;
+    }
+
+    @Component({
+      selector: 'app',
+      template: `<child [showing]="showing">
+        <div>A</div>
+        <span>B</span>
+        <div>A</div>
+        <span>B</span>
+      </child>`
+    })
+    class App {
+      showing = false;
+    }
+
+    TestBed.configureTestingModule({declarations: [App, Child]});
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement).toHaveText('BB()');
+
+    fixture.componentInstance.showing = true;
+    fixture.detectChanges();
+    expect(fixture.nativeElement).toHaveText('BB(AA)');
+
+    fixture.componentInstance.showing = false;
+    fixture.detectChanges();
+    expect(fixture.nativeElement).toHaveText('BB()');
   });
 
   // GH-2095 - https://github.com/angular/angular/issues/2095
@@ -380,7 +491,7 @@ describe('projection', () => {
     expect(main.nativeElement).toHaveText('TREE(0:TREE2(1:TREE(2:)))');
   });
 
-  if (getDOM().supportsNativeShadowDOM()) {
+  if (supportsNativeShadowDOM()) {
     it('should support native content projection and isolate styles per component', () => {
       TestBed.configureTestingModule({declarations: [SimpleNative1, SimpleNative2]});
       TestBed.overrideComponent(MainComp, {
@@ -391,7 +502,7 @@ describe('projection', () => {
       });
       const main = TestBed.createComponent(MainComp);
 
-      const childNodes = getDOM().childNodes(main.nativeElement);
+      const childNodes = main.nativeElement.childNodes;
       expect(childNodes[0]).toHaveText('div {color: red}SIMPLE1(A)');
       expect(childNodes[1]).toHaveText('div {color: blue}SIMPLE2(B)');
       main.destroy();
@@ -411,12 +522,12 @@ describe('projection', () => {
       const main = TestBed.createComponent(MainComp);
 
       const mainEl = main.nativeElement;
-      const div1 = getDOM().firstChild(mainEl);
+      const div1 = mainEl.firstChild;
       const div2 = getDOM().createElement('div');
-      getDOM().setAttribute(div2, 'class', 'redStyle');
-      getDOM().appendChild(mainEl, div2);
-      expect(getDOM().getComputedStyle(div1).color).toEqual('rgb(255, 0, 0)');
-      expect(getDOM().getComputedStyle(div2).color).toEqual('rgb(255, 0, 0)');
+      div2.setAttribute('class', 'redStyle');
+      mainEl.appendChild(div2);
+      expect(getComputedStyle(div1).color).toEqual('rgb(255, 0, 0)');
+      expect(getComputedStyle(div2).color).toEqual('rgb(255, 0, 0)');
     });
 
     it('should support emulated style encapsulation', () => {
@@ -431,33 +542,31 @@ describe('projection', () => {
       const main = TestBed.createComponent(MainComp);
 
       const mainEl = main.nativeElement;
-      const div1 = getDOM().firstChild(mainEl);
+      const div1 = mainEl.firstChild;
       const div2 = getDOM().createElement('div');
-      getDOM().appendChild(mainEl, div2);
-      expect(getDOM().getComputedStyle(div1).color).toEqual('rgb(255, 0, 0)');
-      expect(getDOM().getComputedStyle(div2).color).toEqual('rgb(0, 0, 0)');
+      mainEl.appendChild(div2);
+      expect(getComputedStyle(div1).color).toEqual('rgb(255, 0, 0)');
+      expect(getComputedStyle(div2).color).toEqual('rgb(0, 0, 0)');
     });
   }
 
-  fixmeIvy('FW-869: debugElement.queryAllNodes returns nodes in the wrong order')
-      .it('should support nested conditionals that contain ng-contents', () => {
-        TestBed.configureTestingModule(
-            {declarations: [ConditionalTextComponent, ManualViewportDirective]});
-        TestBed.overrideComponent(
-            MainComp, {set: {template: `<conditional-text>a</conditional-text>`}});
-        const main = TestBed.createComponent(MainComp);
+  it('should support nested conditionals that contain ng-contents', () => {
+    TestBed.configureTestingModule(
+        {declarations: [ConditionalTextComponent, ManualViewportDirective]});
+    TestBed.overrideComponent(
+        MainComp, {set: {template: `<conditional-text>a</conditional-text>`}});
+    const main = TestBed.createComponent(MainComp);
 
-        expect(main.nativeElement).toHaveText('MAIN()');
+    expect(main.nativeElement).toHaveText('MAIN()');
 
-        let viewportElement =
-            main.debugElement.queryAllNodes(By.directive(ManualViewportDirective))[0];
-        viewportElement.injector.get(ManualViewportDirective).show();
-        expect(main.nativeElement).toHaveText('MAIN(FIRST())');
+    let viewportElement = main.debugElement.queryAllNodes(By.directive(ManualViewportDirective))[0];
+    viewportElement.injector.get(ManualViewportDirective).show();
+    expect(main.nativeElement).toHaveText('MAIN(FIRST())');
 
-        viewportElement = main.debugElement.queryAllNodes(By.directive(ManualViewportDirective))[1];
-        viewportElement.injector.get(ManualViewportDirective).show();
-        expect(main.nativeElement).toHaveText('MAIN(FIRST(SECOND(a)))');
-      });
+    viewportElement = main.debugElement.queryAllNodes(By.directive(ManualViewportDirective))[1];
+    viewportElement.injector.get(ManualViewportDirective).show();
+    expect(main.nativeElement).toHaveText('MAIN(FIRST(SECOND(a)))');
+  });
 
   it('should allow to switch the order of nested components via ng-content', () => {
     TestBed.configureTestingModule({declarations: [CmpA, CmpB, CmpD, CmpC]});
@@ -465,7 +574,7 @@ describe('projection', () => {
     const main = TestBed.createComponent(MainComp);
 
     main.detectChanges();
-    expect(getDOM().getInnerHTML(main.nativeElement))
+    expect(main.nativeElement.innerHTML)
         .toEqual(
             '<cmp-a><cmp-b><cmp-d><i>cmp-d</i></cmp-d></cmp-b>' +
             '<cmp-c><b>cmp-c</b></cmp-c></cmp-a>');
@@ -477,7 +586,7 @@ describe('projection', () => {
     const main = TestBed.createComponent(MainComp);
 
     main.detectChanges();
-    expect(getDOM().getInnerHTML(main.nativeElement))
+    expect(main.nativeElement.innerHTML)
         .toEqual(
             '<cmp-a1>a1<cmp-b11>b11</cmp-b11><cmp-b12>b12</cmp-b12></cmp-a1>' +
             '<cmp-a2>a2<cmp-b21>b21</cmp-b21><cmp-b22>b22</cmp-b22></cmp-a2>');
@@ -567,49 +676,48 @@ describe('projection', () => {
     expect(main.nativeElement).toHaveText('ABC');
   });
 
-  fixmeIvy('FW-869: debugElement.queryAllNodes returns nodes in the wrong order')
-      .it('should project filled view containers into a view container', () => {
-        TestBed.configureTestingModule(
-            {declarations: [ConditionalContentComponent, ManualViewportDirective]});
-        TestBed.overrideComponent(MainComp, {
-          set: {
-            template: '<conditional-content>' +
-                '<div class="left">A</div>' +
-                '<ng-template manual class="left">B</ng-template>' +
-                '<div class="left">C</div>' +
-                '<div>D</div>' +
-                '</conditional-content>'
-          }
-        });
-        const main = TestBed.createComponent(MainComp);
+  it('should project filled view containers into a view container', () => {
+    TestBed.configureTestingModule(
+        {declarations: [ConditionalContentComponent, ManualViewportDirective]});
+    TestBed.overrideComponent(MainComp, {
+      set: {
+        template: '<conditional-content>' +
+            '<div class="left">A</div>' +
+            '<ng-template manual class="left">B</ng-template>' +
+            '<div class="left">C</div>' +
+            '<div>D</div>' +
+            '</conditional-content>'
+      }
+    });
+    const main = TestBed.createComponent(MainComp);
 
-        const conditionalComp = main.debugElement.query(By.directive(ConditionalContentComponent));
+    const conditionalComp = main.debugElement.query(By.directive(ConditionalContentComponent));
 
-        const viewViewportDir =
-            conditionalComp.queryAllNodes(By.directive(ManualViewportDirective))[0].injector.get(
-                ManualViewportDirective);
+    const viewViewportDir =
+        conditionalComp.queryAllNodes(By.directive(ManualViewportDirective))[0].injector.get(
+            ManualViewportDirective);
 
-        expect(main.nativeElement).toHaveText('(, D)');
-        expect(main.nativeElement).toHaveText('(, D)');
+    expect(main.nativeElement).toHaveText('(, D)');
+    expect(main.nativeElement).toHaveText('(, D)');
 
-        viewViewportDir.show();
-        main.detectChanges();
-        expect(main.nativeElement).toHaveText('(AC, D)');
+    viewViewportDir.show();
+    main.detectChanges();
+    expect(main.nativeElement).toHaveText('(AC, D)');
 
-        const contentViewportDir =
-            conditionalComp.queryAllNodes(By.directive(ManualViewportDirective))[1].injector.get(
-                ManualViewportDirective);
+    const contentViewportDir =
+        conditionalComp.queryAllNodes(By.directive(ManualViewportDirective))[1].injector.get(
+            ManualViewportDirective);
 
-        contentViewportDir.show();
-        main.detectChanges();
-        expect(main.nativeElement).toHaveText('(ABC, D)');
+    contentViewportDir.show();
+    main.detectChanges();
+    expect(main.nativeElement).toHaveText('(ABC, D)');
 
-        // hide view viewport, and test that it also hides
-        // the content viewport's views
-        viewViewportDir.hide();
-        main.detectChanges();
-        expect(main.nativeElement).toHaveText('(, D)');
-      });
+    // hide view viewport, and test that it also hides
+    // the content viewport's views
+    viewViewportDir.hide();
+    main.detectChanges();
+    expect(main.nativeElement).toHaveText('(, D)');
+  });
 
   describe('projectable nodes', () => {
 
@@ -620,7 +728,7 @@ describe('projection', () => {
 
     @Component({selector: 'with-content', template: ''})
     class WithContentCmpt {
-      @ViewChild('ref') directiveRef: any;
+      @ViewChild('ref', {static: true}) directiveRef: any;
     }
 
     @Component({selector: 're-project', template: '<ng-content></ng-content>'})
@@ -872,7 +980,7 @@ class Tree {
 class CmpD {
   tagName: string;
   constructor(elementRef: ElementRef) {
-    this.tagName = getDOM().tagName(elementRef.nativeElement).toLowerCase();
+    this.tagName = elementRef.nativeElement.tagName.toLowerCase();
   }
 }
 
@@ -881,7 +989,7 @@ class CmpD {
 class CmpC {
   tagName: string;
   constructor(elementRef: ElementRef) {
-    this.tagName = getDOM().tagName(elementRef.nativeElement).toLowerCase();
+    this.tagName = elementRef.nativeElement.tagName.toLowerCase();
   }
 }
 
@@ -923,4 +1031,8 @@ class CmpA1 {
   template: `{{'a2'}}<cmp-b21></cmp-b21><cmp-b22></cmp-b22>`,
 })
 class CmpA2 {
+}
+
+function supportsNativeShadowDOM(): boolean {
+  return typeof(<any>document.body).createShadowRoot === 'function';
 }

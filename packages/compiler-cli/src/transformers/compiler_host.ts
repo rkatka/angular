@@ -6,12 +6,13 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AotCompilerHost, EmitterVisitorContext, ExternalReference, GeneratedFile, ParseSourceSpan, TypeScriptEmitter, collectExternalReferences, syntaxError} from '@angular/compiler';
+import {AotCompilerHost, EmitterVisitorContext, GeneratedFile, ParseSourceSpan, TypeScriptEmitter, collectExternalReferences, syntaxError} from '@angular/compiler';
 import * as path from 'path';
 import * as ts from 'typescript';
 
 import {TypeCheckHost} from '../diagnostics/translate_diagnostics';
-import {METADATA_VERSION, ModuleMetadata} from '../metadata/index';
+import {ModuleMetadata} from '../metadata/index';
+import {join} from '../ngtsc/file_system';
 
 import {CompilerHost, CompilerOptions, LibrarySummary} from './api';
 import {MetadataReaderHost, createMetadataReaderCache, readMetadata} from './metadata_reader';
@@ -21,19 +22,18 @@ const NODE_MODULES_PACKAGE_NAME = /node_modules\/((\w|-|\.)+|(@(\w|-|\.)+\/(\w|-
 const EXT = /(\.ts|\.d\.ts|\.js|\.jsx|\.tsx)$/;
 const CSS_PREPROCESSOR_EXT = /(\.scss|\.less|\.styl)$/;
 
-let augmentHostForTest: {[name: string]: Function}|null = null;
+let wrapHostForTest: ((host: ts.CompilerHost) => ts.CompilerHost)|null = null;
 
-export function setAugmentHostForTest(augmentation: {[name: string]: Function} | null): void {
-  augmentHostForTest = augmentation;
+export function setWrapHostForTest(wrapFn: ((host: ts.CompilerHost) => ts.CompilerHost) | null):
+    void {
+  wrapHostForTest = wrapFn;
 }
 
 export function createCompilerHost(
     {options, tsHost = ts.createCompilerHost(options, true)}:
         {options: CompilerOptions, tsHost?: ts.CompilerHost}): CompilerHost {
-  if (augmentHostForTest !== null) {
-    for (const name of Object.keys(augmentHostForTest)) {
-      (tsHost as any)[name] = augmentHostForTest[name];
-    }
+  if (wrapHostForTest !== null) {
+    tsHost = wrapHostForTest(tsHost);
   }
   return tsHost;
 }
@@ -254,7 +254,7 @@ export class TsCompilerAotCompilerTypeCheckHostAdapter implements ts.CompilerHos
           const modulePath = importedFile.substring(0, importedFile.length - moduleName.length) +
               importedFilePackageName;
           const packageJson = require(modulePath + '/package.json');
-          const packageTypings = path.posix.join(modulePath, packageJson.typings);
+          const packageTypings = join(modulePath, packageJson.typings);
           if (packageTypings === originalImportedFile) {
             moduleName = importedFilePackageName;
           }
@@ -369,10 +369,15 @@ export class TsCompilerAotCompilerTypeCheckHostAdapter implements ts.CompilerHos
         /* emitSourceMaps */ false);
     const sf = ts.createSourceFile(
         genFile.genFileUrl, sourceText, this.options.target || ts.ScriptTarget.Latest);
-    if ((this.options.module === ts.ModuleKind.AMD || this.options.module === ts.ModuleKind.UMD) &&
-        this.context.amdModuleName) {
-      const moduleName = this.context.amdModuleName(sf);
-      if (moduleName) sf.moduleName = moduleName;
+    if (this.options.module === ts.ModuleKind.AMD || this.options.module === ts.ModuleKind.UMD) {
+      if (this.context.amdModuleName) {
+        const moduleName = this.context.amdModuleName(sf);
+        if (moduleName) sf.moduleName = moduleName;
+      } else if (/node_modules/.test(genFile.genFileUrl)) {
+        // If we are generating an ngModule file under node_modules, we know the right module name
+        // We don't need the host to supply a function in this case.
+        sf.moduleName = stripNodeModulesPrefix(genFile.genFileUrl.replace(EXT, ''));
+      }
     }
     this.generatedSourceFiles.set(genFile.genFileUrl, {
       sourceFile: sf,
@@ -436,6 +441,12 @@ export class TsCompilerAotCompilerTypeCheckHostAdapter implements ts.CompilerHos
               fileName, summary.text, this.options.target || ts.ScriptTarget.Latest);
         }
         sf = summary.sourceFile;
+        // TypeScript doesn't allow returning redirect source files. To avoid unforseen errors we
+        // return the original source file instead of the redirect target.
+        const redirectInfo = (sf as any).redirectInfo;
+        if (redirectInfo !== undefined) {
+          sf = redirectInfo.unredirected;
+        }
         genFileNames = [];
       }
     }

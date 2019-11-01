@@ -1,16 +1,15 @@
 """Re-export of some bazel rules with repository-wide defaults."""
 
-load("@build_bazel_rules_nodejs//:defs.bzl", _nodejs_binary = "nodejs_binary", _npm_package = "npm_package")
+load("@build_bazel_rules_nodejs//:index.bzl", _nodejs_binary = "nodejs_binary", _npm_package = "npm_package", _rollup_bundle = "rollup_bundle")
 load("@npm_bazel_jasmine//:index.bzl", _jasmine_node_test = "jasmine_node_test")
-load("@npm_bazel_karma//:defs.bzl", _karma_web_test = "karma_web_test", _karma_web_test_suite = "karma_web_test_suite", _ts_web_test = "ts_web_test", _ts_web_test_suite = "ts_web_test_suite")
-load("@npm_bazel_typescript//:defs.bzl", _ts_library = "ts_library")
+load("@npm_bazel_karma//:index.bzl", _karma_web_test = "karma_web_test", _karma_web_test_suite = "karma_web_test_suite", _ts_web_test = "ts_web_test", _ts_web_test_suite = "ts_web_test_suite")
+load("@npm_bazel_typescript//:index.bzl", _ts_library = "ts_library")
 load("//packages/bazel:index.bzl", _ng_module = "ng_module", _ng_package = "ng_package")
 load("//packages/bazel/src:ng_rollup_bundle.bzl", _ng_rollup_bundle = "ng_rollup_bundle")
+load("//tools:ng_benchmark.bzl", _ng_benchmark = "ng_benchmark")
 
-_DEFAULT_TSCONFIG_BUILD = "//packages:tsconfig-build.json"
 _DEFAULT_TSCONFIG_TEST = "//packages:tsconfig-test"
-_DEFAULT_TS_TYPINGS = "@ngdeps//typescript:typescript__typings"
-_DEFAULT_KARMA_BIN = "@ngdeps//@bazel/karma/bin:karma"
+_INTERNAL_NG_MODULE_API_EXTRACTOR = "//packages/bazel/src/api-extractor:api_extractor"
 _INTERNAL_NG_MODULE_COMPILER = "//packages/bazel/src/ngc-wrapped"
 _INTERNAL_NG_MODULE_XI18N = "//packages/bazel/src/ngc-wrapped:xi18n"
 _INTERNAL_NG_PACKAGER_PACKAGER = "//packages/bazel/src/ng_package:packager"
@@ -30,7 +29,8 @@ ANGULAR_SCOPED_PACKAGES = ["@angular/%s" % p for p in [
     "platform-browser",
     "platform-browser-dynamic",
     "forms",
-    "http",
+    # Current plan for Angular v8 is to not include @angular/http in ng update
+    # "http",
     "platform-server",
     "platform-webworker",
     "platform-webworker-dynamic",
@@ -79,16 +79,14 @@ def _default_module_name(testonly):
 
 def ts_library(tsconfig = None, testonly = False, deps = [], module_name = None, **kwargs):
     """Default values for ts_library"""
-    deps = deps + ["@ngdeps//tslib"]
+    deps = deps + ["@npm//tslib"]
     if testonly:
         # Match the types[] in //packages:tsconfig-test.json
-        deps.append("@ngdeps//@types/jasmine")
-        deps.append("@ngdeps//@types/node")
-    if not tsconfig:
-        if testonly:
-            tsconfig = _DEFAULT_TSCONFIG_TEST
-        else:
-            tsconfig = _DEFAULT_TSCONFIG_BUILD
+        deps.append("@npm//@types/jasmine")
+        deps.append("@npm//@types/node")
+        deps.append("@npm//@types/events")
+    if not tsconfig and testonly:
+        tsconfig = _DEFAULT_TSCONFIG_TEST
 
     if not module_name:
         module_name = _default_module_name(testonly)
@@ -97,23 +95,21 @@ def ts_library(tsconfig = None, testonly = False, deps = [], module_name = None,
         tsconfig = tsconfig,
         testonly = testonly,
         deps = deps,
-        node_modules = _DEFAULT_TS_TYPINGS,
         module_name = module_name,
         **kwargs
     )
 
-def ng_module(name, tsconfig = None, entry_point = None, testonly = False, deps = [], module_name = None, **kwargs):
+def ng_module(name, tsconfig = None, entry_point = None, testonly = False, deps = [], module_name = None, bundle_dts = True, **kwargs):
     """Default values for ng_module"""
-    deps = deps + ["@ngdeps//tslib"]
+    deps = deps + ["@npm//tslib"]
     if testonly:
         # Match the types[] in //packages:tsconfig-test.json
-        deps.append("@ngdeps//@types/jasmine")
-        deps.append("@ngdeps//@types/node")
-    if not tsconfig:
-        if testonly:
-            tsconfig = _DEFAULT_TSCONFIG_TEST
-        else:
-            tsconfig = _DEFAULT_TSCONFIG_BUILD
+        deps.append("@npm//@types/jasmine")
+        deps.append("@npm//@types/node")
+        deps.append("@npm//@types/events")
+    if not tsconfig and testonly:
+        tsconfig = _DEFAULT_TSCONFIG_TEST
+
     if not module_name:
         module_name = _default_module_name(testonly)
     if not entry_point:
@@ -124,10 +120,11 @@ def ng_module(name, tsconfig = None, entry_point = None, testonly = False, deps 
         tsconfig = tsconfig,
         entry_point = entry_point,
         testonly = testonly,
+        bundle_dts = bundle_dts,
         deps = deps,
         compiler = _INTERNAL_NG_MODULE_COMPILER,
+        api_extractor = _INTERNAL_NG_MODULE_API_EXTRACTOR,
         ng_xi18n = _INTERNAL_NG_MODULE_XI18N,
-        node_modules = _DEFAULT_TS_TYPINGS,
         module_name = module_name,
         **kwargs
     )
@@ -139,7 +136,7 @@ def ng_package(name, readme_md = None, license_banner = None, deps = [], **kwarg
     if not license_banner:
         license_banner = "//packages:license-banner.txt"
     deps = deps + [
-        "@ngdeps//tslib",
+        "@npm//tslib",
     ]
 
     _ng_package(
@@ -165,7 +162,7 @@ def ts_web_test(bootstrap = [], deps = [], runtime_deps = [], **kwargs):
     if not bootstrap:
         bootstrap = ["//:web_test_bootstrap_scripts"]
     local_deps = [
-        "@ngdeps//node_modules/tslib:tslib.js",
+        "@npm//:node_modules/tslib/tslib.js",
         "//tools/rxjs:rxjs_umd_modules",
     ] + deps
     local_runtime_deps = [
@@ -176,7 +173,6 @@ def ts_web_test(bootstrap = [], deps = [], runtime_deps = [], **kwargs):
         runtime_deps = local_runtime_deps,
         bootstrap = bootstrap,
         deps = local_deps,
-        karma = _DEFAULT_KARMA_BIN,
         **kwargs
     )
 
@@ -185,18 +181,23 @@ def ts_web_test_suite(bootstrap = [], deps = [], runtime_deps = [], **kwargs):
     if not bootstrap:
         bootstrap = ["//:web_test_bootstrap_scripts"]
     local_deps = [
-        "@ngdeps//node_modules/tslib:tslib.js",
+        "@npm//:node_modules/tslib/tslib.js",
         "//tools/rxjs:rxjs_umd_modules",
     ] + deps
     local_runtime_deps = [
         "//tools/testing:browser",
     ] + runtime_deps
 
+    tags = kwargs.pop("tags", [])
+
+    # rules_webtesting has a required_tag "native" for `chromium-local` browser
+    if not "native" in tags:
+        tags = tags + ["native"]
+
     _ts_web_test_suite(
         runtime_deps = local_runtime_deps,
         bootstrap = bootstrap,
         deps = local_deps,
-        karma = _DEFAULT_KARMA_BIN,
         # Run unit tests on local Chromium by default.
         # You can exclude tests based on tags, e.g. to skip Firefox testing,
         #   `yarn bazel test --test_tag_filters=-browser:firefox-local [targets]`
@@ -208,6 +209,7 @@ def ts_web_test_suite(bootstrap = [], deps = [], runtime_deps = [], **kwargs):
             # "@io_bazel_rules_webtesting//browsers:firefox-local",
             # TODO(alexeagle): add remote browsers on SauceLabs
         ],
+        tags = tags,
         **kwargs
     )
 
@@ -216,8 +218,8 @@ def karma_web_test(bootstrap = [], deps = [], data = [], runtime_deps = [], **kw
     if not bootstrap:
         bootstrap = ["//:web_test_bootstrap_scripts"]
     local_deps = [
-        "@ngdeps//karma-browserstack-launcher",
-        "@ngdeps//node_modules/tslib:tslib.js",
+        "@npm//karma-browserstack-launcher",
+        "@npm//:node_modules/tslib/tslib.js",
         "//tools/rxjs:rxjs_umd_modules",
     ] + deps
     local_runtime_deps = [
@@ -229,7 +231,6 @@ def karma_web_test(bootstrap = [], deps = [], data = [], runtime_deps = [], **kw
         bootstrap = bootstrap,
         config_file = "//:karma-js.conf.js",
         deps = local_deps,
-        karma = _DEFAULT_KARMA_BIN,
         data = data + [
             "//:browser-providers.conf.js",
             "//tools:jasmine-seed-generator.js",
@@ -243,14 +244,19 @@ def karma_web_test_suite(bootstrap = [], deps = [], **kwargs):
     if not bootstrap:
         bootstrap = ["//:web_test_bootstrap_scripts"]
     local_deps = [
-        "@ngdeps//node_modules/tslib:tslib.js",
+        "@npm//:node_modules/tslib/tslib.js",
         "//tools/rxjs:rxjs_umd_modules",
     ] + deps
+
+    tags = kwargs.pop("tags", [])
+
+    # rules_webtesting has a required_tag "native" for `chromium-local` browser
+    if not "native" in tags:
+        tags = tags + ["native"]
 
     _karma_web_test_suite(
         bootstrap = bootstrap,
         deps = local_deps,
-        karma = _DEFAULT_KARMA_BIN,
         # Run unit tests on local Chromium by default.
         # You can exclude tests based on tags, e.g. to skip Firefox testing,
         #   `yarn bazel test --test_tag_filters=-browser:firefox-local [targets]`
@@ -262,15 +268,20 @@ def karma_web_test_suite(bootstrap = [], deps = [], **kwargs):
             # "@io_bazel_rules_webtesting//browsers:firefox-local",
             # TODO(alexeagle): add remote browsers on SauceLabs
         ],
+        tags = tags,
         **kwargs
     )
+
+def ng_benchmark(**kwargs):
+    """Default values for ng_benchmark"""
+    _ng_benchmark(**kwargs)
 
 def nodejs_binary(data = [], **kwargs):
     """Default values for nodejs_binary"""
     _nodejs_binary(
         # Pass-thru --define=compile=foo as an environment variable
         configuration_env_vars = ["compile"],
-        data = data + ["@ngdeps//source-map-support"],
+        data = data + ["@npm//source-map-support"],
         **kwargs
     )
 
@@ -278,30 +289,37 @@ def jasmine_node_test(deps = [], **kwargs):
     """Default values for jasmine_node_test"""
     deps = deps + [
         # Very common dependencies for tests
-        "@ngdeps//chokidar",
-        "@ngdeps//domino",
-        "@ngdeps//jasmine-core",
-        "@ngdeps//mock-fs",
-        "@ngdeps//reflect-metadata",
-        "@ngdeps//source-map-support",
-        "@ngdeps//tslib",
-        "@ngdeps//xhr2",
+        "@npm//chokidar",
+        "@npm//domino",
+        "@npm//jasmine-core",
+        "@npm//reflect-metadata",
+        "@npm//source-map-support",
+        "@npm//tslib",
+        "@npm//xhr2",
     ]
     _jasmine_node_test(
         deps = deps,
         # Pass-thru --define=compile=foo as an environment variable
         configuration_env_vars = ["compile"],
-        jasmine = "@ngdeps//jasmine",
         **kwargs
     )
 
 def ng_rollup_bundle(deps = [], **kwargs):
     """Default values for ng_rollup_bundle"""
     deps = deps + [
-        "@ngdeps//tslib",
-        "@ngdeps//reflect-metadata",
+        "@npm//tslib",
+        "@npm//reflect-metadata",
     ]
     _ng_rollup_bundle(
         deps = deps,
+        **kwargs
+    )
+
+def rollup_bundle(**kwargs):
+    """Default values for rollup_bundle"""
+    _rollup_bundle(
+        # code-splitting is turned on by default in nodejs rules 0.35.0
+        # we want to default to remain off
+        enable_code_splitting = False,
         **kwargs
     )

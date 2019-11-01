@@ -10,10 +10,11 @@ import {SANITIZER} from '../render3/interfaces/view';
 import {getLView} from '../render3/state';
 import {renderStringify} from '../render3/util/misc_utils';
 
-import {BypassType, allowSanitizationBypass} from './bypass';
+import {BypassType, allowSanitizationBypassAndThrow, unwrapSafeValue} from './bypass';
 import {_sanitizeHtml as _sanitizeHtml} from './html_sanitizer';
-import {Sanitizer, SecurityContext} from './security';
-import {StyleSanitizeFn, _sanitizeStyle as _sanitizeStyle} from './style_sanitizer';
+import {Sanitizer} from './sanitizer';
+import {SecurityContext} from './security';
+import {StyleSanitizeFn, StyleSanitizeMode, _sanitizeStyle as _sanitizeStyle} from './style_sanitizer';
 import {_sanitizeUrl as _sanitizeUrl} from './url_sanitizer';
 
 
@@ -30,14 +31,16 @@ import {_sanitizeUrl as _sanitizeUrl} from './url_sanitizer';
  * @param unsafeHtml untrusted `html`, typically from the user.
  * @returns `html` string which is safe to display to user, because all of the dangerous javascript
  * and urls have been removed.
+ *
+ * @publicApi
  */
-export function sanitizeHtml(unsafeHtml: any): string {
+export function ɵɵsanitizeHtml(unsafeHtml: any): string {
   const sanitizer = getSanitizer();
   if (sanitizer) {
     return sanitizer.sanitize(SecurityContext.HTML, unsafeHtml) || '';
   }
-  if (allowSanitizationBypass(unsafeHtml, BypassType.Html)) {
-    return unsafeHtml.toString();
+  if (allowSanitizationBypassAndThrow(unsafeHtml, BypassType.Html)) {
+    return unwrapSafeValue(unsafeHtml);
   }
   return _sanitizeHtml(document, renderStringify(unsafeHtml));
 }
@@ -54,14 +57,16 @@ export function sanitizeHtml(unsafeHtml: any): string {
  * @param unsafeStyle untrusted `style`, typically from the user.
  * @returns `style` string which is safe to bind to the `style` properties, because all of the
  * dangerous javascript and urls have been removed.
+ *
+ * @publicApi
  */
-export function sanitizeStyle(unsafeStyle: any): string {
+export function ɵɵsanitizeStyle(unsafeStyle: any): string {
   const sanitizer = getSanitizer();
   if (sanitizer) {
     return sanitizer.sanitize(SecurityContext.STYLE, unsafeStyle) || '';
   }
-  if (allowSanitizationBypass(unsafeStyle, BypassType.Style)) {
-    return unsafeStyle.toString();
+  if (allowSanitizationBypassAndThrow(unsafeStyle, BypassType.Style)) {
+    return unwrapSafeValue(unsafeStyle);
   }
   return _sanitizeStyle(renderStringify(unsafeStyle));
 }
@@ -79,14 +84,16 @@ export function sanitizeStyle(unsafeStyle: any): string {
  * @param unsafeUrl untrusted `url`, typically from the user.
  * @returns `url` string which is safe to bind to the `src` properties such as `<img src>`, because
  * all of the dangerous javascript has been removed.
+ *
+ * @publicApi
  */
-export function sanitizeUrl(unsafeUrl: any): string {
+export function ɵɵsanitizeUrl(unsafeUrl: any): string {
   const sanitizer = getSanitizer();
   if (sanitizer) {
     return sanitizer.sanitize(SecurityContext.URL, unsafeUrl) || '';
   }
-  if (allowSanitizationBypass(unsafeUrl, BypassType.Url)) {
-    return unsafeUrl.toString();
+  if (allowSanitizationBypassAndThrow(unsafeUrl, BypassType.Url)) {
+    return unwrapSafeValue(unsafeUrl);
   }
   return _sanitizeUrl(renderStringify(unsafeUrl));
 }
@@ -99,14 +106,16 @@ export function sanitizeUrl(unsafeUrl: any): string {
  * @param unsafeResourceUrl untrusted `url`, typically from the user.
  * @returns `url` string which is safe to bind to the `src` properties such as `<img src>`, because
  * only trusted `url`s have been allowed to pass.
+ *
+ * @publicApi
  */
-export function sanitizeResourceUrl(unsafeResourceUrl: any): string {
+export function ɵɵsanitizeResourceUrl(unsafeResourceUrl: any): string {
   const sanitizer = getSanitizer();
   if (sanitizer) {
     return sanitizer.sanitize(SecurityContext.RESOURCE_URL, unsafeResourceUrl) || '';
   }
-  if (allowSanitizationBypass(unsafeResourceUrl, BypassType.ResourceUrl)) {
-    return unsafeResourceUrl.toString();
+  if (allowSanitizationBypassAndThrow(unsafeResourceUrl, BypassType.ResourceUrl)) {
+    return unwrapSafeValue(unsafeResourceUrl);
   }
   throw new Error('unsafe value used in a resource URL context (see http://g.co/ng/security#xss)');
 }
@@ -120,14 +129,16 @@ export function sanitizeResourceUrl(unsafeResourceUrl: any): string {
  * @param unsafeScript untrusted `script`, typically from the user.
  * @returns `url` string which is safe to bind to the `<script>` element such as `<img src>`,
  * because only trusted `scripts` have been allowed to pass.
+ *
+ * @publicApi
  */
-export function sanitizeScript(unsafeScript: any): string {
+export function ɵɵsanitizeScript(unsafeScript: any): string {
   const sanitizer = getSanitizer();
   if (sanitizer) {
     return sanitizer.sanitize(SecurityContext.SCRIPT, unsafeScript) || '';
   }
-  if (allowSanitizationBypass(unsafeScript, BypassType.Script)) {
-    return unsafeScript.toString();
+  if (allowSanitizationBypassAndThrow(unsafeScript, BypassType.Script)) {
+    return unwrapSafeValue(unsafeScript);
   }
   throw new Error('unsafe value used in a script context');
 }
@@ -143,9 +154,9 @@ export function getUrlSanitizer(tag: string, prop: string) {
   if ((prop === 'src' && (tag === 'embed' || tag === 'frame' || tag === 'iframe' ||
                           tag === 'media' || tag === 'script')) ||
       (prop === 'href' && (tag === 'base' || tag === 'link'))) {
-    return sanitizeResourceUrl;
+    return ɵɵsanitizeResourceUrl;
   }
-  return sanitizeUrl;
+  return ɵɵsanitizeUrl;
 }
 
 /**
@@ -160,23 +171,35 @@ export function getUrlSanitizer(tag: string, prop: string) {
  * @param tag target element tag name.
  * @param prop name of the property that contains the value.
  * @returns `url` string which is safe to bind.
+ *
+ * @publicApi
  */
-export function sanitizeUrlOrResourceUrl(unsafeUrl: any, tag: string, prop: string): any {
+export function ɵɵsanitizeUrlOrResourceUrl(unsafeUrl: any, tag: string, prop: string): any {
   return getUrlSanitizer(tag, prop)(unsafeUrl);
 }
 
 /**
  * The default style sanitizer will handle sanitization for style properties by
  * sanitizing any CSS property that can include a `url` value (usually image-based properties)
+ *
+ * @publicApi
  */
-export const defaultStyleSanitizer = (function(prop: string, value?: string): string | boolean {
-  if (value === undefined) {
-    return prop === 'background-image' || prop === 'background' || prop === 'border-image' ||
-        prop === 'filter' || prop === 'list-style' || prop === 'list-style-image';
-  }
+export const ɵɵdefaultStyleSanitizer =
+    (function(prop: string, value: string|null, mode?: StyleSanitizeMode): string | boolean | null {
+      mode = mode || StyleSanitizeMode.ValidateAndSanitize;
+      let doSanitizeValue = true;
+      if (mode & StyleSanitizeMode.ValidateProperty) {
+        doSanitizeValue = prop === 'background-image' || prop === 'background' ||
+            prop === 'border-image' || prop === 'filter' || prop === 'list-style' ||
+            prop === 'list-style-image' || prop === 'clip-path';
+      }
 
-  return sanitizeStyle(value);
-} as StyleSanitizeFn);
+      if (mode & StyleSanitizeMode.SanitizeOnly) {
+        return doSanitizeValue ? ɵɵsanitizeStyle(value) : value;
+      } else {
+        return doSanitizeValue;
+      }
+    } as StyleSanitizeFn);
 
 export function validateAgainstEventProperties(name: string) {
   if (name.toLowerCase().startsWith('on')) {

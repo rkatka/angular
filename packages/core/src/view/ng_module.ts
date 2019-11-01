@@ -7,11 +7,12 @@
  */
 
 import {resolveForwardRef} from '../di/forward_ref';
-import {INJECTOR, Injector} from '../di/injector';
-import {setCurrentInjector} from '../di/injector_compatibility';
-import {InjectableDef, getInjectableDef} from '../di/interface/defs';
-import {APP_ROOT} from '../di/scope';
+import {Injector} from '../di/injector';
+import {INJECTOR, setCurrentInjector} from '../di/injector_compatibility';
+import {getInjectableDef, ɵɵInjectableDef} from '../di/interface/defs';
+import {INJECTOR_SCOPE} from '../di/scope';
 import {NgModuleRef} from '../linker/ng_module_factory';
+import {newArray} from '../util/array_utils';
 import {stringify} from '../util/stringify';
 
 import {DepDef, DepFlags, NgModuleData, NgModuleDefinition, NgModuleProviderDef, NodeFlags} from './types';
@@ -41,11 +42,11 @@ export function moduleProvideDef(
 export function moduleDef(providers: NgModuleProviderDef[]): NgModuleDefinition {
   const providersByKey: {[key: string]: NgModuleProviderDef} = {};
   const modules = [];
-  let isRoot: boolean = false;
+  let scope: 'root'|'platform'|null = null;
   for (let i = 0; i < providers.length; i++) {
     const provider = providers[i];
-    if (provider.token === APP_ROOT && provider.value === true) {
-      isRoot = true;
+    if (provider.token === INJECTOR_SCOPE) {
+      scope = provider.value;
     }
     if (provider.flags & NodeFlags.TypeNgModule) {
       modules.push(provider.token);
@@ -59,13 +60,13 @@ export function moduleDef(providers: NgModuleProviderDef[]): NgModuleDefinition 
     providersByKey,
     providers,
     modules,
-    isRoot,
+    scope: scope,
   };
 }
 
 export function initNgModule(data: NgModuleData) {
   const def = data._def;
-  const providers = data._providers = new Array(def.providers.length);
+  const providers = data._providers = newArray(def.providers.length);
   for (let i = 0; i < def.providers.length; i++) {
     const provDef = def.providers[i];
     if (!(provDef.flags & NodeFlags.LazyProvider)) {
@@ -98,7 +99,7 @@ export function resolveNgModuleDep(
         return data;
     }
     const providerDef = data._def.providersByKey[tokenKey];
-    let injectableDef: InjectableDef<any>|null;
+    let injectableDef: ɵɵInjectableDef<any>|null;
     if (providerDef) {
       let providerInstance = data._providers[providerDef.index];
       if (providerInstance === undefined) {
@@ -109,7 +110,7 @@ export function resolveNgModuleDep(
     } else if (
         (injectableDef = getInjectableDef(depDef.token)) && targetsModule(data, injectableDef)) {
       const index = data._providers.length;
-      data._def.providersByKey[depDef.tokenKey] = {
+      data._def.providers[index] = data._def.providersByKey[depDef.tokenKey] = {
         flags: NodeFlags.TypeFactoryProvider | NodeFlags.LazyProvider,
         value: injectableDef.factory,
         deps: [], index,
@@ -132,9 +133,10 @@ function moduleTransitivelyPresent(ngModule: NgModuleData, scope: any): boolean 
   return ngModule._def.modules.indexOf(scope) > -1;
 }
 
-function targetsModule(ngModule: NgModuleData, def: InjectableDef<any>): boolean {
-  return def.providedIn != null && (moduleTransitivelyPresent(ngModule, def.providedIn) ||
-                                    def.providedIn === 'root' && ngModule._def.isRoot);
+function targetsModule(ngModule: NgModuleData, def: ɵɵInjectableDef<any>): boolean {
+  const providedIn = def.providedIn;
+  return providedIn != null && (providedIn === 'any' || providedIn === ngModule._def.scope ||
+                                moduleTransitivelyPresent(ngModule, providedIn));
 }
 
 function _createProviderInstance(ngModule: NgModuleData, providerDef: NgModuleProviderDef): any {
@@ -179,7 +181,7 @@ function _createClass(ngModule: NgModuleData, ctor: any, deps: DepDef[]): any {
           resolveNgModuleDep(ngModule, deps[0]), resolveNgModuleDep(ngModule, deps[1]),
           resolveNgModuleDep(ngModule, deps[2]));
     default:
-      const depValues = new Array(len);
+      const depValues = [];
       for (let i = 0; i < len; i++) {
         depValues[i] = resolveNgModuleDep(ngModule, deps[i]);
       }
@@ -201,7 +203,7 @@ function _callFactory(ngModule: NgModuleData, factory: any, deps: DepDef[]): any
           resolveNgModuleDep(ngModule, deps[0]), resolveNgModuleDep(ngModule, deps[1]),
           resolveNgModuleDep(ngModule, deps[2]));
     default:
-      const depValues = Array(len);
+      const depValues = [];
       for (let i = 0; i < len; i++) {
         depValues[i] = resolveNgModuleDep(ngModule, deps[i]);
       }

@@ -11,34 +11,39 @@ import * as ts from 'typescript';
 
 import * as api from '../transformers/api';
 import {nocollapseHack} from '../transformers/nocollapse_hack';
+import {verifySupportedTypeScriptVersion} from '../typescript_support';
 
 import {ComponentDecoratorHandler, DirectiveDecoratorHandler, InjectableDecoratorHandler, NgModuleDecoratorHandler, NoopReferencesRegistry, PipeDecoratorHandler, ReferencesRegistry} from './annotations';
-import {BaseDefDecoratorHandler} from './annotations/src/base_def';
 import {CycleAnalyzer, ImportGraph} from './cycles';
 import {ErrorCode, ngErrorCode} from './diagnostics';
 import {FlatIndexGenerator, ReferenceGraph, checkForPrivateExports, findFlatIndexEntryPoint} from './entry_point';
-import {AbsoluteModuleStrategy, AliasGenerator, AliasStrategy, FileToModuleHost, FileToModuleStrategy, ImportRewriter, LocalIdentifierStrategy, LogicalProjectStrategy, ModuleResolver, NoopImportRewriter, R3SymbolsImportRewriter, Reference, ReferenceEmitter} from './imports';
+import {AbsoluteFsPath, LogicalFileSystem, absoluteFrom} from './file_system';
+import {AbsoluteModuleStrategy, AliasStrategy, AliasingHost, DefaultImportTracker, FileToModuleAliasingHost, FileToModuleHost, FileToModuleStrategy, ImportRewriter, LocalIdentifierStrategy, LogicalProjectStrategy, ModuleResolver, NoopImportRewriter, PrivateExportAliasingHost, R3SymbolsImportRewriter, Reference, ReferenceEmitter} from './imports';
+import {IncrementalState} from './incremental';
+import {IndexedComponent, IndexingContext} from './indexer';
+import {generateAnalysis} from './indexer/src/transform';
+import {CompoundMetadataReader, CompoundMetadataRegistry, DtsMetadataReader, LocalMetadataRegistry, MetadataReader} from './metadata';
 import {PartialEvaluator} from './partial_evaluator';
-import {AbsoluteFsPath, LogicalFileSystem} from './path';
+import {NOOP_PERF_RECORDER, PerfRecorder, PerfTracker} from './perf';
 import {TypeScriptReflectionHost} from './reflection';
 import {HostResourceLoader} from './resource_loader';
 import {NgModuleRouteAnalyzer, entryPointKeyFor} from './routing';
-import {LocalModuleScopeRegistry, MetadataDtsModuleScopeResolver} from './scope';
-import {FactoryGenerator, FactoryInfo, GeneratedShimsHostWrapper, ShimGenerator, SummaryGenerator, generatedFactoryTransform} from './shims';
+import {CompoundComponentScopeReader, LocalModuleScopeRegistry, MetadataDtsModuleScopeResolver} from './scope';
+import {FactoryGenerator, FactoryInfo, GeneratedShimsHostWrapper, ShimGenerator, SummaryGenerator, TypeCheckShimGenerator, generatedFactoryTransform} from './shims';
 import {ivySwitchTransform} from './switch';
 import {IvyCompilation, declarationTransformFactory, ivyTransformFactory} from './transform';
 import {aliasTransformFactory} from './transform/src/alias';
-import {TypeCheckContext, TypeCheckProgramHost} from './typecheck';
+import {TypeCheckContext, TypeCheckingConfig, typeCheckFilePath} from './typecheck';
 import {normalizeSeparators} from './util/src/path';
-import {getRootDirs, isDtsPath} from './util/src/typescript';
+import {getRootDirs, getSourceFileOrNull, isDtsPath, resolveModuleName} from './util/src/typescript';
 
 export class NgtscProgram implements api.Program {
   private tsProgram: ts.Program;
+  private reuseTsProgram: ts.Program;
   private resourceManager: HostResourceLoader;
   private compilation: IvyCompilation|undefined = undefined;
   private factoryToSourceInfo: Map<string, FactoryInfo>|null = null;
   private sourceToFactorySymbols: Map<string, Set<string>>|null = null;
-  private host: ts.CompilerHost;
   private _coreImportsFrom: ts.SourceFile|null|undefined = undefined;
   private _importRewriter: ImportRewriter|undefined = undefined;
   private _reflector: TypeScriptReflectionHost|undefined = undefined;
@@ -53,30 +58,62 @@ export class NgtscProgram implements api.Program {
   private constructionDiagnostics: ts.Diagnostic[] = [];
   private moduleResolver: ModuleResolver;
   private cycleAnalyzer: CycleAnalyzer;
+  private metaReader: MetadataReader|null = null;
 
+  private aliasingHost: AliasingHost|null = null;
   private refEmitter: ReferenceEmitter|null = null;
   private fileToModuleHost: FileToModuleHost|null = null;
+  private defaultImportTracker: DefaultImportTracker;
+  private perfRecorder: PerfRecorder = NOOP_PERF_RECORDER;
+  private perfTracker: PerfTracker|null = null;
+  private incrementalState: IncrementalState;
+  private typeCheckFilePath: AbsoluteFsPath;
+
+  private modifiedResourceFiles: Set<string>|null;
 
   constructor(
       rootNames: ReadonlyArray<string>, private options: api.CompilerOptions,
-      host: api.CompilerHost, oldProgram?: api.Program) {
+      private host: api.CompilerHost, oldProgram?: NgtscProgram) {
+    if (!options.disableTypeScriptVersionCheck) {
+      verifySupportedTypeScriptVersion();
+    }
+
+    if (shouldEnablePerfTracing(options)) {
+      this.perfTracker = PerfTracker.zeroedToNow();
+      this.perfRecorder = this.perfTracker;
+    }
+
+    this.modifiedResourceFiles =
+        this.host.getModifiedResourceFiles && this.host.getModifiedResourceFiles() || null;
     this.rootDirs = getRootDirs(host, options);
     this.closureCompilerEnabled = !!options.annotateForClosureCompiler;
     this.resourceManager = new HostResourceLoader(host, options);
-    const shouldGenerateShims = options.allowEmptyCodegenFiles || false;
-    this.host = host;
+    // TODO(alxhub): remove the fallback to allowEmptyCodegenFiles after verifying that the rest of
+    // our build tooling is no longer relying on it.
+    const allowEmptyCodegenFiles = options.allowEmptyCodegenFiles || false;
+    const shouldGenerateFactoryShims = options.generateNgFactoryShims !== undefined ?
+        options.generateNgFactoryShims :
+        allowEmptyCodegenFiles;
+    const shouldGenerateSummaryShims = options.generateNgSummaryShims !== undefined ?
+        options.generateNgSummaryShims :
+        allowEmptyCodegenFiles;
+    const normalizedRootNames = rootNames.map(n => absoluteFrom(n));
     if (host.fileNameToModuleName !== undefined) {
       this.fileToModuleHost = host as FileToModuleHost;
     }
     let rootFiles = [...rootNames];
 
     const generators: ShimGenerator[] = [];
-    if (shouldGenerateShims) {
+    let summaryGenerator: SummaryGenerator|null = null;
+    if (shouldGenerateSummaryShims) {
       // Summary generation.
-      const summaryGenerator = SummaryGenerator.forRootFiles(rootNames);
+      summaryGenerator = SummaryGenerator.forRootFiles(normalizedRootNames);
+      generators.push(summaryGenerator);
+    }
 
+    if (shouldGenerateFactoryShims) {
       // Factory generation.
-      const factoryGenerator = FactoryGenerator.forRootFiles(rootNames);
+      const factoryGenerator = FactoryGenerator.forRootFiles(normalizedRootNames);
       const factoryFileMap = factoryGenerator.factoryFileMap;
       this.factoryToSourceInfo = new Map<string, FactoryInfo>();
       this.sourceToFactorySymbols = new Map<string, Set<string>>();
@@ -87,13 +124,23 @@ export class NgtscProgram implements api.Program {
       });
 
       const factoryFileNames = Array.from(factoryFileMap.keys());
-      rootFiles.push(...factoryFileNames, ...summaryGenerator.getSummaryFileNames());
-      generators.push(summaryGenerator, factoryGenerator);
+      rootFiles.push(...factoryFileNames);
+      generators.push(factoryGenerator);
     }
 
-    let entryPoint: string|null = null;
-    if (options.flatModuleOutFile !== undefined) {
-      entryPoint = findFlatIndexEntryPoint(rootNames);
+    // Done separately to preserve the order of factory files before summary files in rootFiles.
+    // TODO(alxhub): validate that this is necessary.
+    if (shouldGenerateSummaryShims) {
+      rootFiles.push(...summaryGenerator !.getSummaryFileNames());
+    }
+
+    this.typeCheckFilePath = typeCheckFilePath(this.rootDirs);
+    generators.push(new TypeCheckShimGenerator(this.typeCheckFilePath));
+    rootFiles.push(this.typeCheckFilePath);
+
+    let entryPoint: AbsoluteFsPath|null = null;
+    if (options.flatModuleOutFile != null && options.flatModuleOutFile !== '') {
+      entryPoint = findFlatIndexEntryPoint(normalizedRootNames);
       if (entryPoint === null) {
         // This error message talks specifically about having a single .ts file in "files". However
         // the actual logic is a bit more permissive. If a single file exists, that will be taken,
@@ -123,15 +170,25 @@ export class NgtscProgram implements api.Program {
     }
 
     if (generators.length > 0) {
-      this.host = new GeneratedShimsHostWrapper(host, generators);
+      // FIXME: Remove the any cast once google3 is fully on TS3.6.
+      this.host = (new GeneratedShimsHostWrapper(host, generators) as any);
     }
 
     this.tsProgram =
-        ts.createProgram(rootFiles, options, this.host, oldProgram && oldProgram.getTsProgram());
+        ts.createProgram(rootFiles, options, this.host, oldProgram && oldProgram.reuseTsProgram);
+    this.reuseTsProgram = this.tsProgram;
 
-    this.entryPoint = entryPoint !== null ? this.tsProgram.getSourceFile(entryPoint) || null : null;
+    this.entryPoint = entryPoint !== null ? getSourceFileOrNull(this.tsProgram, entryPoint) : null;
     this.moduleResolver = new ModuleResolver(this.tsProgram, options, this.host);
     this.cycleAnalyzer = new CycleAnalyzer(new ImportGraph(this.moduleResolver));
+    this.defaultImportTracker = new DefaultImportTracker();
+    if (oldProgram === undefined) {
+      this.incrementalState = IncrementalState.fresh();
+    } else {
+      this.incrementalState = IncrementalState.reconcile(
+          oldProgram.incrementalState, oldProgram.reuseTsProgram, this.tsProgram,
+          this.modifiedResourceFiles);
+    }
   }
 
   getTsProgram(): ts.Program { return this.tsProgram; }
@@ -142,7 +199,7 @@ export class NgtscProgram implements api.Program {
   }
 
   getNgOptionDiagnostics(cancellationToken?: ts.CancellationToken|
-                         undefined): ReadonlyArray<ts.Diagnostic|api.Diagnostic> {
+                         undefined): ReadonlyArray<ts.Diagnostic> {
     return this.constructionDiagnostics;
   }
 
@@ -164,15 +221,10 @@ export class NgtscProgram implements api.Program {
   }
 
   getNgSemanticDiagnostics(
-      fileName?: string|undefined, cancellationToken?: ts.CancellationToken|
-                                   undefined): ReadonlyArray<ts.Diagnostic|api.Diagnostic> {
+      fileName?: string|undefined,
+      cancellationToken?: ts.CancellationToken|undefined): ReadonlyArray<ts.Diagnostic> {
     const compilation = this.ensureAnalyzed();
-    const diagnostics = [...compilation.diagnostics];
-    if (!!this.options.fullTemplateTypeCheck) {
-      const ctx = new TypeCheckContext(this.refEmitter !);
-      compilation.typeCheck(ctx);
-      diagnostics.push(...this.compileTypeCheckProgram(ctx));
-    }
+    const diagnostics = [...compilation.diagnostics, ...this.getTemplateDiagnostics()];
     if (this.entryPoint !== null && this.exportReferenceGraph !== null) {
       diagnostics.push(...checkForPrivateExports(
           this.entryPoint, this.tsProgram.getTypeChecker(), this.exportReferenceGraph));
@@ -184,10 +236,23 @@ export class NgtscProgram implements api.Program {
     if (this.compilation === undefined) {
       this.compilation = this.makeCompilation();
     }
+    const analyzeSpan = this.perfRecorder.start('analyze');
     await Promise.all(this.tsProgram.getSourceFiles()
                           .filter(file => !file.fileName.endsWith('.d.ts'))
-                          .map(file => this.compilation !.analyzeAsync(file))
+                          .map(file => {
+
+                            const analyzeFileSpan = this.perfRecorder.start('analyzeFile', file);
+                            let analysisPromise = this.compilation !.analyzeAsync(file);
+                            if (analysisPromise === undefined) {
+                              this.perfRecorder.stop(analyzeFileSpan);
+                            } else if (this.perfRecorder.enabled) {
+                              analysisPromise = analysisPromise.then(
+                                  () => this.perfRecorder.stop(analyzeFileSpan));
+                            }
+                            return analysisPromise;
+                          })
                           .filter((result): result is Promise<void> => result !== undefined));
+    this.perfRecorder.stop(analyzeSpan);
     this.compilation.resolve();
   }
 
@@ -217,10 +282,10 @@ export class NgtscProgram implements api.Program {
       // of the root files.
       const containingFile = this.tsProgram.getRootFileNames()[0];
       const [entryPath, moduleName] = entryRoute.split('#');
-      const resolved = ts.resolveModuleName(entryPath, containingFile, this.options, this.host);
+      const resolvedModule = resolveModuleName(entryPath, containingFile, this.options, this.host);
 
-      if (resolved.resolvedModule) {
-        entryRoute = entryPointKeyFor(resolved.resolvedModule.resolvedFileName, moduleName);
+      if (resolvedModule) {
+        entryRoute = entryPointKeyFor(resolvedModule.resolvedFileName, moduleName);
       }
     }
 
@@ -242,10 +307,16 @@ export class NgtscProgram implements api.Program {
 
   private ensureAnalyzed(): IvyCompilation {
     if (this.compilation === undefined) {
+      const analyzeSpan = this.perfRecorder.start('analyze');
       this.compilation = this.makeCompilation();
       this.tsProgram.getSourceFiles()
           .filter(file => !file.fileName.endsWith('.d.ts'))
-          .forEach(file => this.compilation !.analyzeSync(file));
+          .forEach(file => {
+            const analyzeFileSpan = this.perfRecorder.start('analyzeFile', file);
+            this.compilation !.analyzeSync(file);
+            this.perfRecorder.stop(analyzeFileSpan);
+          });
+      this.perfRecorder.stop(analyzeSpan);
       this.compilation.resolve();
     }
     return this.compilation;
@@ -265,7 +336,7 @@ export class NgtscProgram implements api.Program {
     const writeFile: ts.WriteFileCallback =
         (fileName: string, data: string, writeByteOrderMark: boolean,
          onError: ((message: string) => void) | undefined,
-         sourceFiles: ReadonlyArray<ts.SourceFile>) => {
+         sourceFiles: ReadonlyArray<ts.SourceFile>| undefined) => {
           if (this.closureCompilerEnabled && fileName.endsWith('.js')) {
             data = nocollapseHack(data);
           }
@@ -273,16 +344,22 @@ export class NgtscProgram implements api.Program {
         };
 
     const customTransforms = opts && opts.customTransformers;
+
     const beforeTransforms = [
       ivyTransformFactory(
-          compilation, this.reflector, this.importRewriter, this.isCore,
+          compilation, this.reflector, this.importRewriter, this.defaultImportTracker, this.isCore,
           this.closureCompilerEnabled),
       aliasTransformFactory(compilation.exportStatements) as ts.TransformerFactory<ts.SourceFile>,
+      this.defaultImportTracker.importPreservingTransformer(),
     ];
     const afterDeclarationsTransforms = [
       declarationTransformFactory(compilation),
     ];
 
+    // Only add aliasing re-exports to the .d.ts output if the `AliasingHost` requests it.
+    if (this.aliasingHost !== null && this.aliasingHost.aliasExportsInDts) {
+      afterDeclarationsTransforms.push(aliasTransformFactory(compilation.exportStatements));
+    }
 
     if (this.factoryToSourceInfo !== null) {
       beforeTransforms.push(
@@ -293,36 +370,154 @@ export class NgtscProgram implements api.Program {
       beforeTransforms.push(...customTransforms.beforeTs);
     }
 
+    const emitSpan = this.perfRecorder.start('emit');
+    const emitResults: ts.EmitResult[] = [];
+
+    const typeCheckFile = getSourceFileOrNull(this.tsProgram, this.typeCheckFilePath);
+
+    for (const targetSourceFile of this.tsProgram.getSourceFiles()) {
+      if (targetSourceFile.isDeclarationFile || targetSourceFile === typeCheckFile) {
+        continue;
+      }
+
+      if (this.incrementalState.safeToSkip(targetSourceFile)) {
+        continue;
+      }
+
+      const fileEmitSpan = this.perfRecorder.start('emitFile', targetSourceFile);
+      emitResults.push(emitCallback({
+        targetSourceFile,
+        program: this.tsProgram,
+        host: this.host,
+        options: this.options,
+        emitOnlyDtsFiles: false, writeFile,
+        customTransformers: {
+          before: beforeTransforms,
+          after: customTransforms && customTransforms.afterTs,
+          afterDeclarations: afterDeclarationsTransforms,
+        },
+      }));
+      this.perfRecorder.stop(fileEmitSpan);
+    }
+    this.perfRecorder.stop(emitSpan);
+
+    if (this.perfTracker !== null && this.options.tracePerformance !== undefined) {
+      this.perfTracker.serializeToFile(this.options.tracePerformance, this.host);
+    }
+
     // Run the emit, including a custom transformer that will downlevel the Ivy decorators in code.
-    const emitResult = emitCallback({
-      program: this.tsProgram,
-      host: this.host,
-      options: this.options,
-      emitOnlyDtsFiles: false, writeFile,
-      customTransformers: {
-        before: beforeTransforms,
-        after: customTransforms && customTransforms.afterTs,
-        afterDeclarations: afterDeclarationsTransforms,
-      },
-    });
-    return emitResult;
+    return ((opts && opts.mergeEmitResultsCallback) || mergeEmitResults)(emitResults);
   }
 
-  private compileTypeCheckProgram(ctx: TypeCheckContext): ReadonlyArray<ts.Diagnostic> {
-    const host = new TypeCheckProgramHost(this.tsProgram, this.host, ctx);
-    const auxProgram = ts.createProgram({
-      host,
-      rootNames: this.tsProgram.getRootFileNames(),
-      oldProgram: this.tsProgram,
-      options: this.options,
-    });
-    return auxProgram.getSemanticDiagnostics();
+  private getTemplateDiagnostics(): ReadonlyArray<ts.Diagnostic> {
+    // Skip template type-checking if it's disabled.
+    if (this.options.ivyTemplateTypeCheck === false &&
+        this.options.fullTemplateTypeCheck !== true) {
+      return [];
+    }
+
+    const compilation = this.ensureAnalyzed();
+
+    // Run template type-checking.
+
+    // First select a type-checking configuration, based on whether full template type-checking is
+    // requested.
+    let typeCheckingConfig: TypeCheckingConfig;
+    if (this.options.fullTemplateTypeCheck) {
+      const strictTemplates = !!this.options.strictTemplates;
+      typeCheckingConfig = {
+        applyTemplateContextGuards: true,
+        checkQueries: false,
+        checkTemplateBodies: true,
+        checkTypeOfInputBindings: strictTemplates,
+        strictNullInputBindings: strictTemplates,
+        checkTypeOfAttributes: strictTemplates,
+        // Even in full template type-checking mode, DOM binding checks are not quite ready yet.
+        checkTypeOfDomBindings: false,
+        checkTypeOfOutputEvents: strictTemplates,
+        checkTypeOfAnimationEvents: strictTemplates,
+        // Checking of DOM events currently has an adverse effect on developer experience,
+        // e.g. for `<input (blur)="update($event.target.value)">` enabling this check results in:
+        // - error TS2531: Object is possibly 'null'.
+        // - error TS2339: Property 'value' does not exist on type 'EventTarget'.
+        checkTypeOfDomEvents: strictTemplates,
+        checkTypeOfDomReferences: strictTemplates,
+        // Non-DOM references have the correct type in View Engine so there is no strictness flag.
+        checkTypeOfNonDomReferences: true,
+        // Pipes are checked in View Engine so there is no strictness flag.
+        checkTypeOfPipes: true,
+        strictSafeNavigationTypes: strictTemplates,
+      };
+    } else {
+      typeCheckingConfig = {
+        applyTemplateContextGuards: false,
+        checkQueries: false,
+        checkTemplateBodies: false,
+        checkTypeOfInputBindings: false,
+        strictNullInputBindings: false,
+        checkTypeOfAttributes: false,
+        checkTypeOfDomBindings: false,
+        checkTypeOfOutputEvents: false,
+        checkTypeOfAnimationEvents: false,
+        checkTypeOfDomEvents: false,
+        checkTypeOfDomReferences: false,
+        checkTypeOfNonDomReferences: false,
+        checkTypeOfPipes: false,
+        strictSafeNavigationTypes: false,
+      };
+    }
+
+    // Apply explicitly configured strictness flags on top of the default configuration
+    // based on "fullTemplateTypeCheck".
+    if (this.options.strictInputTypes !== undefined) {
+      typeCheckingConfig.checkTypeOfInputBindings = this.options.strictInputTypes;
+    }
+    if (this.options.strictNullInputTypes !== undefined) {
+      typeCheckingConfig.strictNullInputBindings = this.options.strictNullInputTypes;
+    }
+    if (this.options.strictOutputEventTypes !== undefined) {
+      typeCheckingConfig.checkTypeOfOutputEvents = this.options.strictOutputEventTypes;
+      typeCheckingConfig.checkTypeOfAnimationEvents = this.options.strictOutputEventTypes;
+    }
+    if (this.options.strictDomEventTypes !== undefined) {
+      typeCheckingConfig.checkTypeOfDomEvents = this.options.strictDomEventTypes;
+    }
+    if (this.options.strictSafeNavigationTypes !== undefined) {
+      typeCheckingConfig.strictSafeNavigationTypes = this.options.strictSafeNavigationTypes;
+    }
+    if (this.options.strictDomLocalRefTypes !== undefined) {
+      typeCheckingConfig.checkTypeOfDomReferences = this.options.strictDomLocalRefTypes;
+    }
+    if (this.options.strictAttributeTypes !== undefined) {
+      typeCheckingConfig.checkTypeOfAttributes = this.options.strictAttributeTypes;
+    }
+
+    // Execute the typeCheck phase of each decorator in the program.
+    const prepSpan = this.perfRecorder.start('typeCheckPrep');
+    const ctx = new TypeCheckContext(typeCheckingConfig, this.refEmitter !, this.typeCheckFilePath);
+    compilation.typeCheck(ctx);
+    this.perfRecorder.stop(prepSpan);
+
+    // Get the diagnostics.
+    const typeCheckSpan = this.perfRecorder.start('typeCheckDiagnostics');
+    const {diagnostics, program} =
+        ctx.calculateTemplateDiagnostics(this.tsProgram, this.host, this.options);
+    this.perfRecorder.stop(typeCheckSpan);
+    this.reuseTsProgram = program;
+
+    return diagnostics;
+  }
+
+  getIndexedComponents(): Map<ts.Declaration, IndexedComponent> {
+    const compilation = this.ensureAnalyzed();
+    const context = new IndexingContext();
+    compilation.index(context);
+    return generateAnalysis(context);
   }
 
   private makeCompilation(): IvyCompilation {
     const checker = this.tsProgram.getTypeChecker();
 
-    let aliasGenerator: AliasGenerator|null = null;
     // Construct the ReferenceEmitter.
     if (this.fileToModuleHost === null || !this.options._useHostForImportGeneration) {
       // The CompilerHost doesn't have fileNameToModuleName, so build an NPM-centric reference
@@ -331,12 +526,22 @@ export class NgtscProgram implements api.Program {
         // First, try to use local identifiers if available.
         new LocalIdentifierStrategy(),
         // Next, attempt to use an absolute import.
-        new AbsoluteModuleStrategy(this.tsProgram, checker, this.options, this.host),
+        new AbsoluteModuleStrategy(
+            this.tsProgram, checker, this.options, this.host, this.reflector),
         // Finally, check if the reference is being written into a file within the project's logical
         // file system, and use a relative import if so. If this fails, ReferenceEmitter will throw
         // an error.
-        new LogicalProjectStrategy(checker, new LogicalFileSystem(this.rootDirs)),
+        new LogicalProjectStrategy(this.reflector, new LogicalFileSystem(this.rootDirs)),
       ]);
+
+      // If an entrypoint is present, then all user imports should be directed through the
+      // entrypoint and private exports are not needed. The compiler will validate that all publicly
+      // visible directives/pipes are importable via this entrypoint.
+      if (this.entryPoint === null && this.options.generateDeepReexports === true) {
+        // No entrypoint is present and deep re-exports were requested, so configure the aliasing
+        // system to generate them.
+        this.aliasingHost = new PrivateExportAliasingHost(this.reflector);
+      }
     } else {
       // The CompilerHost supports fileNameToModuleName, so use that to emit imports.
       this.refEmitter = new ReferenceEmitter([
@@ -345,20 +550,29 @@ export class NgtscProgram implements api.Program {
         // Then use aliased references (this is a workaround to StrictDeps checks).
         new AliasStrategy(),
         // Then use fileNameToModuleName to emit imports.
-        new FileToModuleStrategy(checker, this.fileToModuleHost),
+        new FileToModuleStrategy(this.reflector, this.fileToModuleHost),
       ]);
-      aliasGenerator = new AliasGenerator(this.fileToModuleHost);
+      this.aliasingHost = new FileToModuleAliasingHost(this.fileToModuleHost);
     }
 
-    const evaluator = new PartialEvaluator(this.reflector, checker);
-    const depScopeReader =
-        new MetadataDtsModuleScopeResolver(checker, this.reflector, aliasGenerator);
-    const scopeRegistry =
-        new LocalModuleScopeRegistry(depScopeReader, this.refEmitter, aliasGenerator);
+    const evaluator = new PartialEvaluator(this.reflector, checker, this.incrementalState);
+    const dtsReader = new DtsMetadataReader(checker, this.reflector);
+    const localMetaRegistry = new LocalMetadataRegistry();
+    const localMetaReader = new CompoundMetadataReader([localMetaRegistry, this.incrementalState]);
+    const depScopeReader = new MetadataDtsModuleScopeResolver(dtsReader, this.aliasingHost);
+    const scopeRegistry = new LocalModuleScopeRegistry(
+        localMetaReader, depScopeReader, this.refEmitter, this.aliasingHost, this.incrementalState);
+    const scopeReader = new CompoundComponentScopeReader([scopeRegistry, this.incrementalState]);
+    const metaRegistry =
+        new CompoundMetadataRegistry([localMetaRegistry, scopeRegistry, this.incrementalState]);
+
+    this.metaReader = new CompoundMetadataReader([localMetaReader, dtsReader]);
 
 
-    // If a flat module entrypoint was specified, then track references via a `ReferenceGraph` in
-    // order to produce proper diagnostics for incorrectly exported directives/pipes/etc. If there
+    // If a flat module entrypoint was specified, then track references via a `ReferenceGraph`
+    // in
+    // order to produce proper diagnostics for incorrectly exported directives/pipes/etc. If
+    // there
     // is no flat module entrypoint then don't pay the cost of tracking references.
     let referencesRegistry: ReferencesRegistry;
     if (this.entryPoint !== null) {
@@ -372,23 +586,33 @@ export class NgtscProgram implements api.Program {
 
     // Set up the IvyCompilation, which manages state for the Ivy transformer.
     const handlers = [
-      new BaseDefDecoratorHandler(this.reflector, evaluator),
       new ComponentDecoratorHandler(
-          this.reflector, evaluator, scopeRegistry, this.isCore, this.resourceManager,
-          this.rootDirs, this.options.preserveWhitespaces || false,
-          this.options.i18nUseExternalIds !== false, this.moduleResolver, this.cycleAnalyzer,
-          this.refEmitter),
-      new DirectiveDecoratorHandler(this.reflector, evaluator, scopeRegistry, this.isCore),
+          this.reflector, evaluator, metaRegistry, this.metaReader !, scopeReader, scopeRegistry,
+          this.isCore, this.resourceManager, this.rootDirs,
+          this.options.preserveWhitespaces || false, this.options.i18nUseExternalIds !== false,
+          this.getI18nLegacyMessageFormat(), this.moduleResolver, this.cycleAnalyzer,
+          this.refEmitter, this.defaultImportTracker, this.incrementalState),
+      new DirectiveDecoratorHandler(
+          this.reflector, evaluator, metaRegistry, this.defaultImportTracker, this.isCore),
       new InjectableDecoratorHandler(
-          this.reflector, this.isCore, this.options.strictInjectionParameters || false),
+          this.reflector, this.defaultImportTracker, this.isCore,
+          this.options.strictInjectionParameters || false),
       new NgModuleDecoratorHandler(
-          this.reflector, evaluator, scopeRegistry, referencesRegistry, this.isCore,
-          this.routeAnalyzer, this.refEmitter),
-      new PipeDecoratorHandler(this.reflector, evaluator, scopeRegistry, this.isCore),
+          this.reflector, evaluator, this.metaReader, metaRegistry, scopeRegistry,
+          referencesRegistry, this.isCore, this.routeAnalyzer, this.refEmitter,
+          this.defaultImportTracker, this.options.i18nInLocale),
+      new PipeDecoratorHandler(
+          this.reflector, evaluator, metaRegistry, this.defaultImportTracker, this.isCore),
     ];
 
     return new IvyCompilation(
-        handlers, checker, this.reflector, this.importRewriter, this.sourceToFactorySymbols);
+        handlers, this.reflector, this.importRewriter, this.incrementalState, this.perfRecorder,
+        this.sourceToFactorySymbols, scopeRegistry);
+  }
+
+  private getI18nLegacyMessageFormat(): string {
+    return this.options.enableI18nLegacyMessageIdFormat !== false && this.options.i18nInFormat ||
+        '';
   }
 
   private get reflector(): TypeScriptReflectionHost {
@@ -438,6 +662,7 @@ function mergeEmitResults(emitResults: ts.EmitResult[]): ts.EmitResult {
     emitSkipped = emitSkipped || er.emitSkipped;
     emittedFiles.push(...(er.emittedFiles || []));
   }
+
   return {diagnostics, emitSkipped, emittedFiles};
 }
 
@@ -501,4 +726,8 @@ export class ReferenceGraphAdapter implements ReferencesRegistry {
       }
     }
   }
+}
+
+function shouldEnablePerfTracing(options: api.CompilerOptions): boolean {
+  return options.tracePerformance !== undefined;
 }

@@ -1,6 +1,6 @@
-package(default_visibility = ["//visibility:public"])
-
 load("//tools:defaults.bzl", "ng_module", "ng_package")
+
+package(default_visibility = ["//visibility:public"])
 
 ng_module(
     name = "platform-browser",
@@ -10,13 +10,12 @@ ng_module(
             "src/**/*.ts",
         ],
     ),
-    bundle_dts = True,
     deps = [
         "//packages:types",
         "//packages/common",
         "//packages/core",
-        "@ngdeps//@types/hammerjs",
-        "@ngdeps//zone.js",
+        "@npm//@types/hammerjs",
+        "@npm//zone.js",
     ],
 )
 
@@ -27,7 +26,7 @@ ng_package(
         "//packages/platform-browser/animations:package.json",
         "//packages/platform-browser/testing:package.json",
     ],
-    entry_point = "packages/platform-browser/index.js",
+    entry_point = ":index.ts",
     tags = [
         "release-with-framework",
     ],

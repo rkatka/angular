@@ -12,9 +12,9 @@ import {assertDomNode} from '../util/assert';
 import {EMPTY_ARRAY} from './empty';
 import {LContext, MONKEY_PATCH_KEY_NAME} from './interfaces/context';
 import {TNode, TNodeFlags} from './interfaces/node';
-import {RElement} from './interfaces/renderer';
+import {RElement, RNode} from './interfaces/renderer';
 import {CONTEXT, HEADER_OFFSET, HOST, LView, TVIEW} from './interfaces/view';
-import {getComponentViewByIndex, getNativeByTNode, readElementValue, readPatchedData} from './util/view_utils';
+import {getComponentLViewByIndex, getNativeByTNodeOrNull, readPatchedData, unwrapRNode} from './util/view_utils';
 
 
 
@@ -71,7 +71,7 @@ export function getLContext(target: any): LContext|null {
       // are expensive. Instead, only the target data (the element, component, container, ICU
       // expression or directive details) are filled into the context. If called multiple times
       // with different target values then the missing target data will be filled in.
-      const native = readElementValue(lView[nodeIndex]);
+      const native = unwrapRNode(lView[nodeIndex]);
       const existingCtx = readPatchedData(native);
       const context: LContext = (existingCtx && !Array.isArray(existingCtx)) ?
           existingCtx :
@@ -119,7 +119,7 @@ export function getLContext(target: any): LContext|null {
 
         const index = findViaNativeElement(lView, rElement);
         if (index >= 0) {
-          const native = readElementValue(lView[index]);
+          const native = unwrapRNode(lView[index]);
           const context = createLContext(lView, index, native);
           attachPatchData(native, context);
           mpValue = context;
@@ -134,7 +134,7 @@ export function getLContext(target: any): LContext|null {
 /**
  * Creates an empty instance of a `LContext` context
  */
-function createLContext(lView: LView, nodeIndex: number, native: RElement): LContext {
+function createLContext(lView: LView, nodeIndex: number, native: RNode): LContext {
   return {
     lView,
     nodeIndex,
@@ -157,14 +157,14 @@ export function getComponentViewByInstance(componentInstance: {}): LView {
 
   if (Array.isArray(lView)) {
     const nodeIndex = findViaComponent(lView, componentInstance);
-    view = getComponentViewByIndex(nodeIndex, lView);
+    view = getComponentLViewByIndex(nodeIndex, lView);
     const context = createLContext(lView, nodeIndex, view[HOST] as RElement);
     context.component = componentInstance;
     attachPatchData(componentInstance, context);
     attachPatchData(context.native, context);
   } else {
     const context = lView as any as LContext;
-    view = getComponentViewByIndex(context.nodeIndex, context.lView);
+    view = getComponentLViewByIndex(context.nodeIndex, context.lView);
   }
   return view;
 }
@@ -178,11 +178,11 @@ export function attachPatchData(target: any, data: LView | LContext) {
 }
 
 export function isComponentInstance(instance: any): boolean {
-  return instance && instance.constructor && instance.constructor.ngComponentDef;
+  return instance && instance.constructor && instance.constructor.ɵcmp;
 }
 
 export function isDirectiveInstance(instance: any): boolean {
-  return instance && instance.constructor && instance.constructor.ngDirectiveDef;
+  return instance && instance.constructor && instance.constructor.ɵdir;
 }
 
 /**
@@ -191,7 +191,7 @@ export function isDirectiveInstance(instance: any): boolean {
 function findViaNativeElement(lView: LView, target: RElement): number {
   let tNode = lView[TVIEW].firstChild;
   while (tNode) {
-    const native = getNativeByTNode(tNode, lView) !;
+    const native = getNativeByTNodeOrNull(tNode, lView) !;
     if (native === target) {
       return tNode.index;
     }
@@ -228,13 +228,13 @@ function findViaComponent(lView: LView, componentInstance: {}): number {
   if (componentIndices) {
     for (let i = 0; i < componentIndices.length; i++) {
       const elementComponentIndex = componentIndices[i];
-      const componentView = getComponentViewByIndex(elementComponentIndex, lView);
+      const componentView = getComponentLViewByIndex(elementComponentIndex, lView);
       if (componentView[CONTEXT] === componentInstance) {
         return elementComponentIndex;
       }
     }
   } else {
-    const rootComponentView = getComponentViewByIndex(HEADER_OFFSET, lView);
+    const rootComponentView = getComponentLViewByIndex(HEADER_OFFSET, lView);
     const rootComponent = rootComponentView[CONTEXT];
     if (rootComponent === componentInstance) {
       // we are dealing with the root element here therefore we know that the
@@ -282,14 +282,14 @@ export function getDirectivesAtNodeIndex(
   let directiveStartIndex = tNode.directiveStart;
   if (directiveStartIndex == 0) return EMPTY_ARRAY;
   const directiveEndIndex = tNode.directiveEnd;
-  if (!includeComponents && tNode.flags & TNodeFlags.isComponent) directiveStartIndex++;
+  if (!includeComponents && tNode.flags & TNodeFlags.isComponentHost) directiveStartIndex++;
   return lView.slice(directiveStartIndex, directiveEndIndex);
 }
 
 export function getComponentAtNodeIndex(nodeIndex: number, lView: LView): {}|null {
   const tNode = lView[TVIEW].data[nodeIndex] as TNode;
   let directiveStartIndex = tNode.directiveStart;
-  return tNode.flags & TNodeFlags.isComponent ? lView[directiveStartIndex] : null;
+  return tNode.flags & TNodeFlags.isComponentHost ? lView[directiveStartIndex] : null;
 }
 
 /**

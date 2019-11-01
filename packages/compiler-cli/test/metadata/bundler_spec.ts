@@ -11,7 +11,7 @@ import * as ts from 'typescript';
 
 import {CompilerHostAdapter, MetadataBundler, MetadataBundlerHost} from '../../src/metadata/bundler';
 import {MetadataCollector} from '../../src/metadata/collector';
-import {ClassMetadata, MetadataGlobalReferenceExpression, ModuleMetadata} from '../../src/metadata/schema';
+import {ClassMetadata, MetadataEntry, MetadataGlobalReferenceExpression, ModuleMetadata} from '../../src/metadata/schema';
 import {Directory, MockAotContext, MockCompilerHost} from '../mocks';
 
 describe('compiler host adapter', () => {
@@ -231,7 +231,7 @@ describe('metadata bundler', () => {
             import {sharedFn} from '../shared';
           
             export class MyClass {
-              static ngInjectableDef = sharedFn(); 
+              static ɵprov = sharedFn(); 
             }
           `,
         }
@@ -242,9 +242,9 @@ describe('metadata bundler', () => {
     const deepIndexMetadata = host.getMetadataFor('/lib/deep/index') !;
 
     // The unbundled metadata should reference symbols using the relative module path.
-    expect(deepIndexMetadata.metadata['MyClass']).toEqual(jasmine.objectContaining({
+    expect(deepIndexMetadata.metadata['MyClass']).toEqual(jasmine.objectContaining<MetadataEntry>({
       statics: {
-        ngInjectableDef: {
+        ɵprov: {
           __symbolic: 'call',
           expression: {
             __symbolic: 'reference',
@@ -258,9 +258,9 @@ describe('metadata bundler', () => {
     // For the bundled metadata, the "sharedFn" symbol should not be referenced using the
     // relative module path (like for unbundled), because the metadata bundle can be stored
     // anywhere and it's not guaranteed that the relatively referenced files are present.
-    expect(bundledMetadata.metadata['MyClass']).toEqual(jasmine.objectContaining({
+    expect(bundledMetadata.metadata['MyClass']).toEqual(jasmine.objectContaining<MetadataEntry>({
       statics: {
-        ngInjectableDef: {
+        ɵprov: {
           __symbolic: 'call',
           expression: {
             __symbolic: 'reference',
@@ -420,6 +420,21 @@ describe('metadata bundler', () => {
       }
     ]);
     expect(result.metadata.origins !['E']).toBeUndefined();
+  });
+
+  it('should be able to bundle a library with multiple unnamed re-exports', () => {
+    const host = new MockStringBundlerHost('/', {
+      'public-api.ts': `
+        export * from '@mypkg/secondary1';
+        export * from '@mypkg/secondary2';
+      `,
+    });
+
+    const bundler = new MetadataBundler('/public-api', undefined, host);
+    const result = bundler.getMetadataBundle();
+    expect(result.metadata.exports).toEqual([
+      {from: '@mypkg/secondary1'}, {from: '@mypkg/secondary2'}
+    ]);
   });
 
   it('should be able to de-duplicate symbols of re-exported modules', () => {

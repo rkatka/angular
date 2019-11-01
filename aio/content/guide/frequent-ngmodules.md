@@ -1,12 +1,5 @@
 # Frequently Used Modules
 
-#### Prerequisites
-
-A basic understanding of [Bootstrapping](guide/bootstrapping).
-
-
-<hr>
-
 An Angular app needs at least one module that serves as the root module.
 As you add features to your app, you can add them in modules.
 The following are frequently used Angular modules with examples
@@ -118,8 +111,10 @@ directives in `CommonModule`; they don’t need to re-install app-wide providers
 If you do import `BrowserModule` into a lazy loaded feature module,
 Angular returns an error telling you to use `CommonModule` instead.
 
-<figure>
- <img src="generated/images/guide/frequent-ngmodules/browser-module-error.gif" width=750 alt="BrowserModule error">
+<figure class="lightbox">
+  <div class="card">
+    <img src="generated/images/guide/frequent-ngmodules/browser-module-error.gif" width=750 alt="BrowserModule error">
+  </div>
 </figure>
 
 <hr />

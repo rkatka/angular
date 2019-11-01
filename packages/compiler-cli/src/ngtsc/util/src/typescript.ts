@@ -10,7 +10,7 @@ const TS = /\.tsx?$/i;
 const D_TS = /\.d\.ts$/i;
 
 import * as ts from 'typescript';
-import {AbsoluteFsPath} from '../../path';
+import {AbsoluteFsPath, absoluteFrom} from '../../file_system';
 
 export function isDtsPath(filePath: string): boolean {
   return D_TS.test(filePath);
@@ -25,7 +25,7 @@ export function isFromDtsFile(node: ts.Node): boolean {
   if (sf === undefined) {
     sf = ts.getOriginalNode(node).getSourceFile();
   }
-  return sf !== undefined && D_TS.test(sf.fileName);
+  return sf !== undefined && sf.isDeclarationFile;
 }
 
 export function nodeNameForError(node: ts.Node & {name?: ts.Node}): string {
@@ -45,6 +45,17 @@ export function getSourceFile(node: ts.Node): ts.SourceFile {
   // original node instead (which works).
   const directSf = node.getSourceFile() as ts.SourceFile | undefined;
   return directSf !== undefined ? directSf : ts.getOriginalNode(node).getSourceFile();
+}
+
+export function getSourceFileOrNull(program: ts.Program, fileName: AbsoluteFsPath): ts.SourceFile|
+    null {
+  return program.getSourceFile(fileName) || null;
+}
+
+
+export function getTokenAtPosition(sf: ts.SourceFile, pos: number): ts.Node {
+  // getTokenAtPosition is part of TypeScript's private API.
+  return (ts as any).getTokenAtPosition(sf, pos);
 }
 
 export function identifierOfNode(decl: ts.Node & {name?: ts.Node}): ts.Identifier|null {
@@ -78,11 +89,36 @@ export function getRootDirs(host: ts.CompilerHost, options: ts.CompilerOptions):
   } else {
     rootDirs.push(host.getCurrentDirectory());
   }
-  return rootDirs.map(rootDir => AbsoluteFsPath.fromUnchecked(rootDir));
+
+  // In Windows the above might not always return posix separated paths
+  // See:
+  // https://github.com/Microsoft/TypeScript/blob/3f7357d37f66c842d70d835bc925ec2a873ecfec/src/compiler/sys.ts#L650
+  // Also compiler options might be set via an API which doesn't normalize paths
+  return rootDirs.map(rootDir => absoluteFrom(rootDir));
 }
 
 export function nodeDebugInfo(node: ts.Node): string {
   const sf = getSourceFile(node);
   const {line, character} = ts.getLineAndCharacterOfPosition(sf, node.pos);
   return `[${sf.fileName}: ${ts.SyntaxKind[node.kind]} @ ${line}:${character}]`;
+}
+
+/**
+ * Resolve the specified `moduleName` using the given `compilerOptions` and `compilerHost`.
+ *
+ * This helper will attempt to use the `CompilerHost.resolveModuleNames()` method if available.
+ * Otherwise it will fallback on the `ts.ResolveModuleName()` function.
+ */
+export function resolveModuleName(
+    moduleName: string, containingFile: string, compilerOptions: ts.CompilerOptions,
+    compilerHost: ts.CompilerHost): ts.ResolvedModule|undefined {
+  if (compilerHost.resolveModuleNames) {
+    // FIXME: Additional parameters are required in TS3.6, but ignored in 3.5.
+    // Remove the any cast once google3 is fully on TS3.6.
+    return (compilerHost as any)
+        .resolveModuleNames([moduleName], containingFile, undefined, undefined, compilerOptions)[0];
+  } else {
+    return ts.resolveModuleName(moduleName, containingFile, compilerOptions, compilerHost)
+        .resolvedModule;
+  }
 }

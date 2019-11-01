@@ -7,21 +7,21 @@
  */
 
 import {ViewEncapsulation} from '../metadata/view';
-import {assertDefined} from '../util/assert';
-
-import {assertLContainer, assertLView} from './assert';
+import {addToArray, removeFromArray} from '../util/array_utils';
+import {assertDefined, assertDomNode, assertEqual} from '../util/assert';
+import {assertLContainer, assertLView, assertTNodeForLView} from './assert';
 import {attachPatchData} from './context_discovery';
-import {LContainer, NATIVE, VIEWS, unusedValueExportToPlacateAjd as unused1} from './interfaces/container';
+import {CONTAINER_HEADER_OFFSET, LContainer, MOVED_VIEWS, NATIVE, unusedValueExportToPlacateAjd as unused1} from './interfaces/container';
 import {ComponentDef} from './interfaces/definition';
 import {NodeInjectorFactory} from './interfaces/injector';
-import {TElementNode, TNode, TNodeFlags, TNodeType, TViewNode, unusedValueExportToPlacateAjd as unused2} from './interfaces/node';
+import {TElementNode, TNode, TNodeFlags, TNodeType, TProjectionNode, TViewNode, unusedValueExportToPlacateAjd as unused2} from './interfaces/node';
 import {unusedValueExportToPlacateAjd as unused3} from './interfaces/projection';
-import {ProceduralRenderer3, RComment, RElement, RNode, RText, Renderer3, isProceduralRenderer, unusedValueExportToPlacateAjd as unused4} from './interfaces/renderer';
-import {CHILD_HEAD, CLEANUP, FLAGS, HEADER_OFFSET, HookData, LView, LViewFlags, NEXT, PARENT, QUERIES, RENDERER, TVIEW, T_HOST, unusedValueExportToPlacateAjd as unused5} from './interfaces/view';
-import {assertNodeType} from './node_assert';
-import {renderStringify} from './util/misc_utils';
+import {ProceduralRenderer3, RElement, RNode, RText, Renderer3, isProceduralRenderer, unusedValueExportToPlacateAjd as unused4} from './interfaces/renderer';
+import {isLContainer, isLView, isRootView} from './interfaces/type_checks';
+import {CHILD_HEAD, CLEANUP, DECLARATION_LCONTAINER, FLAGS, HOST, HookData, LView, LViewFlags, NEXT, PARENT, QUERIES, RENDERER, TVIEW, T_HOST, unusedValueExportToPlacateAjd as unused5} from './interfaces/view';
+import {assertNodeOfPossibleTypes, assertNodeType} from './node_assert';
 import {findComponentView, getLViewParent} from './util/view_traversal_utils';
-import {getNativeByTNode, isComponent, isLContainer, isLView, isRootView, readElementValue} from './util/view_utils';
+import {getNativeByTNode, getNativeByTNodeOrNull, unwrapRNode} from './util/view_utils';
 
 const unusedValueToPlacateAjd = unused1 + unused2 + unused3 + unused4 + unused5;
 
@@ -44,177 +44,82 @@ export function getLContainer(tNode: TViewNode, embeddedView: LView): LContainer
  * Retrieves render parent for a given view.
  * Might be null if a view is not yet attached to any container.
  */
-function getContainerRenderParent(tViewNode: TViewNode, view: LView): RElement|null {
+export function getContainerRenderParent(tViewNode: TViewNode, view: LView): RElement|null {
   const container = getLContainer(tViewNode, view);
   return container ? nativeParentNode(view[RENDERER], container[NATIVE]) : null;
 }
 
 const enum WalkTNodeTreeAction {
-  /** node insert in the native environment */
-  Insert = 0,
+  /** node create in the native environment. Run on initial creation. */
+  Create = 0,
+
+  /**
+   * node insert in the native environment.
+   * Run when existing node has been detached and needs to be re-attached.
+   */
+  Insert = 1,
 
   /** node detach from the native environment */
-  Detach = 1,
+  Detach = 2,
 
   /** node destruction using the renderer's API */
-  Destroy = 2,
+  Destroy = 3,
 }
 
 
-/**
- * Stack used to keep track of projection nodes in walkTNodeTree.
- *
- * This is deliberately created outside of walkTNodeTree to avoid allocating
- * a new array each time the function is called. Instead the array will be
- * re-used by each invocation. This works because the function is not reentrant.
- */
-const projectionNodeStack: (LView | TNode)[] = [];
-
-/**
- * Walks a tree of TNodes, applying a transformation on the element nodes, either only on the first
- * one found, or on all of them.
- *
- * @param viewToWalk the view to walk
- * @param action identifies the action to be performed on the elements
- * @param renderer the current renderer.
- * @param renderParent Optional the render parent node to be set in all LContainers found,
- * required for action modes Insert and Destroy.
- * @param beforeNode Optional the node before which elements should be added, required for action
- * Insert.
- */
-function walkTNodeTree(
-    viewToWalk: LView, action: WalkTNodeTreeAction, renderer: Renderer3,
-    renderParent: RElement | null, beforeNode?: RNode | null) {
-  const rootTNode = viewToWalk[TVIEW].node as TViewNode;
-  let projectionNodeIndex = -1;
-  let currentView = viewToWalk;
-  let tNode: TNode|null = rootTNode.child as TNode;
-  while (tNode) {
-    let nextTNode: TNode|null = null;
-    if (tNode.type === TNodeType.Element) {
-      executeNodeAction(
-          action, renderer, renderParent, getNativeByTNode(tNode, currentView), tNode, beforeNode);
-      const nodeOrContainer = currentView[tNode.index];
-      if (isLContainer(nodeOrContainer)) {
-        // This element has an LContainer, and its comment needs to be handled
-        executeNodeAction(
-            action, renderer, renderParent, nodeOrContainer[NATIVE], tNode, beforeNode);
-      }
-    } else if (tNode.type === TNodeType.Container) {
-      const lContainer = currentView ![tNode.index] as LContainer;
-      executeNodeAction(action, renderer, renderParent, lContainer[NATIVE], tNode, beforeNode);
-
-      if (lContainer[VIEWS].length) {
-        currentView = lContainer[VIEWS][0];
-        nextTNode = currentView[TVIEW].node;
-
-        // When the walker enters a container, then the beforeNode has to become the local native
-        // comment node.
-        beforeNode = lContainer[NATIVE];
-      }
-    } else if (tNode.type === TNodeType.Projection) {
-      const componentView = findComponentView(currentView !);
-      const componentHost = componentView[T_HOST] as TElementNode;
-      const head: TNode|null =
-          (componentHost.projection as(TNode | null)[])[tNode.projection as number];
-
-      if (Array.isArray(head)) {
-        for (let nativeNode of head) {
-          executeNodeAction(action, renderer, renderParent, nativeNode, tNode, beforeNode);
-        }
-      } else {
-        // Must store both the TNode and the view because this projection node could be nested
-        // deeply inside embedded views, and we need to get back down to this particular nested
-        // view.
-        projectionNodeStack[++projectionNodeIndex] = tNode;
-        projectionNodeStack[++projectionNodeIndex] = currentView !;
-        if (head) {
-          currentView = componentView[PARENT] !as LView;
-          nextTNode = currentView[TVIEW].data[head.index] as TNode;
-        }
-      }
-
-    } else {
-      // Otherwise, this is a View or an ElementContainer
-      nextTNode = tNode.child;
-    }
-
-    if (nextTNode === null) {
-      // this last node was projected, we need to get back down to its projection node
-      if (tNode.next === null && (tNode.flags & TNodeFlags.isProjected)) {
-        currentView = projectionNodeStack[projectionNodeIndex--] as LView;
-        tNode = projectionNodeStack[projectionNodeIndex--] as TNode;
-      }
-      nextTNode = tNode.next;
-
-      /**
-       * Find the next node in the TNode tree, taking into account the place where a node is
-       * projected (in the shadow DOM) rather than where it comes from (in the light DOM).
-       *
-       * If there is no sibling node, then it goes to the next sibling of the parent node...
-       * until it reaches rootNode (at which point null is returned).
-       */
-      while (!nextTNode) {
-        // If parent is null, we're crossing the view boundary, so we should get the host TNode.
-        tNode = tNode.parent || currentView[T_HOST];
-
-        if (tNode === null || tNode === rootTNode) return null;
-
-        // When exiting a container, the beforeNode must be restored to the previous value
-        if (tNode.type === TNodeType.Container) {
-          currentView = getLViewParent(currentView) !;
-          beforeNode = currentView[tNode.index][NATIVE];
-        }
-
-        if (tNode.type === TNodeType.View) {
-          /**
-           * If current lView doesn't have next pointer, we try to find it by going up parents
-           * chain until:
-           * - we find an lView with a next pointer
-           * - or find a tNode with a parent that has a next pointer
-           * - or reach root TNode (in which case we exit, since we traversed all nodes)
-           */
-          while (!currentView[NEXT] && currentView[PARENT] &&
-                 !(tNode.parent && tNode.parent.next)) {
-            if (tNode === rootTNode) return null;
-            currentView = currentView[PARENT] as LView;
-            tNode = currentView[T_HOST] !;
-          }
-          if (currentView[NEXT]) {
-            currentView = currentView[NEXT] as LView;
-            nextTNode = currentView[T_HOST];
-          } else {
-            nextTNode = tNode.next;
-          }
-        } else {
-          nextTNode = tNode.next;
-        }
-      }
-    }
-    tNode = nextTNode;
-  }
-}
 
 /**
  * NOTE: for performance reasons, the possible actions are inlined within the function instead of
  * being passed as an argument.
  */
-function executeNodeAction(
+function applyToElementOrContainer(
     action: WalkTNodeTreeAction, renderer: Renderer3, parent: RElement | null,
-    node: RComment | RElement | RText, tNode: TNode, beforeNode?: RNode | null) {
-  if (action === WalkTNodeTreeAction.Insert) {
-    nativeInsertBefore(renderer, parent !, node, beforeNode || null);
-  } else if (action === WalkTNodeTreeAction.Detach) {
-    nativeRemoveNode(renderer, node, isComponent(tNode));
-  } else if (action === WalkTNodeTreeAction.Destroy) {
-    ngDevMode && ngDevMode.rendererDestroyNode++;
-    (renderer as ProceduralRenderer3).destroyNode !(node);
+    lNodeToHandle: RNode | LContainer | LView, beforeNode?: RNode | null) {
+  // If this slot was allocated for a text node dynamically created by i18n, the text node itself
+  // won't be created until i18nApply() in the update block, so this node should be skipped.
+  // For more info, see "ICU expressions should work inside an ngTemplateOutlet inside an ngFor"
+  // in `i18n_spec.ts`.
+  if (lNodeToHandle != null) {
+    let lContainer: LContainer|undefined;
+    let isComponent = false;
+    // We are expecting an RNode, but in the case of a component or LContainer the `RNode` is
+    // wrapped in an array which needs to be unwrapped. We need to know if it is a component and if
+    // it has LContainer so that we can process all of those cases appropriately.
+    if (isLContainer(lNodeToHandle)) {
+      lContainer = lNodeToHandle;
+    } else if (isLView(lNodeToHandle)) {
+      isComponent = true;
+      ngDevMode && assertDefined(lNodeToHandle[HOST], 'HOST must be defined for a component LView');
+      lNodeToHandle = lNodeToHandle[HOST] !;
+    }
+    const rNode: RNode = unwrapRNode(lNodeToHandle);
+    ngDevMode && !isProceduralRenderer(renderer) && assertDomNode(rNode);
+
+    if (action === WalkTNodeTreeAction.Create && parent !== null) {
+      if (beforeNode == null) {
+        nativeAppendChild(renderer, parent, rNode);
+      } else {
+        nativeInsertBefore(renderer, parent, rNode, beforeNode || null);
+      }
+    } else if (action === WalkTNodeTreeAction.Insert && parent !== null) {
+      nativeInsertBefore(renderer, parent, rNode, beforeNode || null);
+    } else if (action === WalkTNodeTreeAction.Detach) {
+      nativeRemoveNode(renderer, rNode, isComponent);
+    } else if (action === WalkTNodeTreeAction.Destroy) {
+      ngDevMode && ngDevMode.rendererDestroyNode++;
+      (renderer as ProceduralRenderer3).destroyNode !(rNode);
+    }
+    if (lContainer != null) {
+      applyContainer(renderer, action, lContainer, parent, beforeNode);
+    }
   }
 }
 
-export function createTextNode(value: any, renderer: Renderer3): RText {
-  return isProceduralRenderer(renderer) ? renderer.createText(renderStringify(value)) :
-                                          renderer.createTextNode(renderStringify(value));
+export function createTextNode(value: string, renderer: Renderer3): RText {
+  ngDevMode && ngDevMode.rendererCreateTextNode++;
+  ngDevMode && ngDevMode.rendererSetText++;
+  return isProceduralRenderer(renderer) ? renderer.createText(value) :
+                                          renderer.createTextNode(value);
 }
 
 /**
@@ -224,23 +129,31 @@ export function createTextNode(value: any, renderer: Renderer3): RText {
  * to propagate deeply into the nested containers to remove all elements in the
  * views beneath it.
  *
- * @param viewToWalk The view from which elements should be added or removed
+ * @param lView The view from which elements should be added or removed
  * @param insertMode Whether or not elements should be added (if false, removing)
  * @param beforeNode The node before which elements should be added, if insert mode
  */
 export function addRemoveViewFromContainer(
-    viewToWalk: LView, insertMode: true, beforeNode: RNode | null): void;
-export function addRemoveViewFromContainer(viewToWalk: LView, insertMode: false): void;
+    lView: LView, insertMode: true, beforeNode: RNode | null): void;
+export function addRemoveViewFromContainer(lView: LView, insertMode: false, beforeNode: null): void;
 export function addRemoveViewFromContainer(
-    viewToWalk: LView, insertMode: boolean, beforeNode?: RNode | null): void {
-  const renderParent = getContainerRenderParent(viewToWalk[TVIEW].node as TViewNode, viewToWalk);
-  ngDevMode && assertNodeType(viewToWalk[TVIEW].node as TNode, TNodeType.View);
+    lView: LView, insertMode: boolean, beforeNode: RNode | null): void {
+  const renderParent = getContainerRenderParent(lView[TVIEW].node as TViewNode, lView);
+  ngDevMode && assertNodeType(lView[TVIEW].node as TNode, TNodeType.View);
   if (renderParent) {
-    const renderer = viewToWalk[RENDERER];
-    walkTNodeTree(
-        viewToWalk, insertMode ? WalkTNodeTreeAction.Insert : WalkTNodeTreeAction.Detach, renderer,
-        renderParent, beforeNode);
+    const renderer = lView[RENDERER];
+    const action = insertMode ? WalkTNodeTreeAction.Insert : WalkTNodeTreeAction.Detach;
+    applyView(renderer, action, lView, renderParent, beforeNode);
   }
+}
+
+/**
+ * Detach a `LView` from the DOM by detaching its nodes.
+ *
+ * @param lView the `LView` to be detached.
+ */
+export function renderDetachView(lView: LView) {
+  applyView(lView[RENDERER], WalkTNodeTreeAction.Detach, lView, null, null);
 }
 
 /**
@@ -272,8 +185,8 @@ export function destroyViewTree(rootView: LView): void {
     } else {
       ngDevMode && assertLContainer(lViewOrLContainer);
       // If container, traverse down to its first LView.
-      const views = lViewOrLContainer[VIEWS] as LView[];
-      if (views.length > 0) next = views[0];
+      const firstView: LView|undefined = lViewOrLContainer[CONTAINER_HEADER_OFFSET];
+      if (firstView) next = firstView;
     }
 
     if (!next) {
@@ -305,26 +218,33 @@ export function destroyViewTree(rootView: LView): void {
 export function insertView(lView: LView, lContainer: LContainer, index: number) {
   ngDevMode && assertLView(lView);
   ngDevMode && assertLContainer(lContainer);
-  const views = lContainer[VIEWS];
-  ngDevMode && assertDefined(views, 'Container must have views');
+  const indexInContainer = CONTAINER_HEADER_OFFSET + index;
+  const containerLength = lContainer.length;
+
   if (index > 0) {
     // This is a new view, we need to add it to the children.
-    views[index - 1][NEXT] = lView;
+    lContainer[indexInContainer - 1][NEXT] = lView;
   }
-
-  if (index < views.length) {
-    lView[NEXT] = views[index];
-    views.splice(index, 0, lView);
+  if (index < containerLength - CONTAINER_HEADER_OFFSET) {
+    lView[NEXT] = lContainer[indexInContainer];
+    addToArray(lContainer, CONTAINER_HEADER_OFFSET + index, lView);
   } else {
-    views.push(lView);
+    lContainer.push(lView);
     lView[NEXT] = null;
   }
 
   lView[PARENT] = lContainer;
 
-  // Notify query that a new view has been added
-  if (lView[QUERIES]) {
-    lView[QUERIES] !.insertView(index);
+  // track views where declaration and insertion points are different
+  const declarationLContainer = lView[DECLARATION_LCONTAINER];
+  if (declarationLContainer !== null && lContainer !== declarationLContainer) {
+    trackMovedView(declarationLContainer, lView);
+  }
+
+  // notify query that a new view has been added
+  const lQueries = lView[QUERIES];
+  if (lQueries !== null) {
+    lQueries.insertView(lView[TVIEW]);
   }
 
   // Sets the attached flag
@@ -332,30 +252,69 @@ export function insertView(lView: LView, lContainer: LContainer, index: number) 
 }
 
 /**
+ * Track views created from the declaration container (TemplateRef) and inserted into a
+ * different LContainer.
+ */
+function trackMovedView(declarationContainer: LContainer, lView: LView) {
+  ngDevMode && assertLContainer(declarationContainer);
+  const declaredViews = declarationContainer[MOVED_VIEWS];
+  if (declaredViews === null) {
+    declarationContainer[MOVED_VIEWS] = [lView];
+  } else {
+    declaredViews.push(lView);
+  }
+}
+
+function detachMovedView(declarationContainer: LContainer, lView: LView) {
+  ngDevMode && assertLContainer(declarationContainer);
+  ngDevMode && assertDefined(
+                   declarationContainer[MOVED_VIEWS],
+                   'A projected view should belong to a non-empty projected views collection');
+  const projectedViews = declarationContainer[MOVED_VIEWS] !;
+  const declaredViewIndex = projectedViews.indexOf(lView);
+  projectedViews.splice(declaredViewIndex, 1);
+}
+
+/**
  * Detaches a view from a container.
  *
- * This method splices the view from the container's array of active views. It also
+ * This method removes the view from the container's array of active views. It also
  * removes the view's elements from the DOM.
  *
  * @param lContainer The container from which to detach a view
  * @param removeIndex The index of the view to detach
  * @returns Detached LView instance.
  */
-export function detachView(lContainer: LContainer, removeIndex: number): LView {
-  const views = lContainer[VIEWS];
-  const viewToDetach = views[removeIndex];
-  if (removeIndex > 0) {
-    views[removeIndex - 1][NEXT] = viewToDetach[NEXT] as LView;
-  }
-  views.splice(removeIndex, 1);
-  addRemoveViewFromContainer(viewToDetach, false);
+export function detachView(lContainer: LContainer, removeIndex: number): LView|undefined {
+  if (lContainer.length <= CONTAINER_HEADER_OFFSET) return;
 
-  if (viewToDetach[QUERIES]) {
-    viewToDetach[QUERIES] !.removeView();
+  const indexInContainer = CONTAINER_HEADER_OFFSET + removeIndex;
+  const viewToDetach = lContainer[indexInContainer];
+
+  if (viewToDetach) {
+    const declarationLContainer = viewToDetach[DECLARATION_LCONTAINER];
+    if (declarationLContainer !== null && declarationLContainer !== lContainer) {
+      detachMovedView(declarationLContainer, viewToDetach);
+    }
+
+
+    if (removeIndex > 0) {
+      lContainer[indexInContainer - 1][NEXT] = viewToDetach[NEXT] as LView;
+    }
+    const removedLView = removeFromArray(lContainer, CONTAINER_HEADER_OFFSET + removeIndex);
+    addRemoveViewFromContainer(viewToDetach, false, null);
+
+    // notify query that a view has been removed
+    const lQueries = removedLView[QUERIES];
+    if (lQueries !== null) {
+      lQueries.detachView(removedLView[TVIEW]);
+    }
+
+    viewToDetach[PARENT] = null;
+    viewToDetach[NEXT] = null;
+    // Unsets the attached flag
+    viewToDetach[FLAGS] &= ~LViewFlags.Attached;
   }
-  viewToDetach[PARENT] = null;
-  // Unsets the attached flag
-  viewToDetach[FLAGS] &= ~LViewFlags.Attached;
   return viewToDetach;
 }
 
@@ -366,25 +325,24 @@ export function detachView(lContainer: LContainer, removeIndex: number): LView {
  * @param removeIndex The index of the view to remove
  */
 export function removeView(lContainer: LContainer, removeIndex: number) {
-  const view = lContainer[VIEWS][removeIndex];
-  detachView(lContainer, removeIndex);
-  destroyLView(view);
+  const detachedView = detachView(lContainer, removeIndex);
+  detachedView && destroyLView(detachedView);
 }
 
 /**
  * A standalone function which destroys an LView,
  * conducting cleanup (e.g. removing listeners, calling onDestroys).
  *
- * @param view The view to be destroyed.
+ * @param lView The view to be destroyed.
  */
-export function destroyLView(view: LView) {
-  if (!(view[FLAGS] & LViewFlags.Destroyed)) {
-    const renderer = view[RENDERER];
+export function destroyLView(lView: LView) {
+  if (!(lView[FLAGS] & LViewFlags.Destroyed)) {
+    const renderer = lView[RENDERER];
     if (isProceduralRenderer(renderer) && renderer.destroyNode) {
-      walkTNodeTree(view, WalkTNodeTreeAction.Destroy, renderer, null);
+      applyView(renderer, WalkTNodeTreeAction.Destroy, lView, null, null);
     }
 
-    destroyViewTree(view);
+    destroyViewTree(lView);
   }
 }
 
@@ -421,9 +379,11 @@ export function getParentState(lViewOrLContainer: LView | LContainer, rootView: 
  *
  * @param view The LView to clean up
  */
-function cleanUpView(viewOrContainer: LView | LContainer): void {
-  if ((viewOrContainer as LView).length >= HEADER_OFFSET) {
-    const view = viewOrContainer as LView;
+function cleanUpView(view: LView | LContainer): void {
+  if (isLView(view) && !(view[FLAGS] & LViewFlags.Destroyed)) {
+    // Usually the Attached flag is removed when the view is detached from its parent, however
+    // if it's a root view, the flag won't be unset hence why we're also removing on destroy.
+    view[FLAGS] &= ~LViewFlags.Attached;
 
     // Mark the LView as destroyed *before* executing the onDestroy hooks. An onDestroy hook
     // runs arbitrary user code, which could include its own `viewRef.destroy()` (or similar). If
@@ -440,25 +400,40 @@ function cleanUpView(viewOrContainer: LView | LContainer): void {
       ngDevMode && ngDevMode.rendererDestroy++;
       (view[RENDERER] as ProceduralRenderer3).destroy();
     }
+
+    const declarationContainer = view[DECLARATION_LCONTAINER];
+    // we are dealing with an embedded view that is still inserted into a container
+    if (declarationContainer !== null && isLContainer(view[PARENT])) {
+      // and this is a projected view
+      if (declarationContainer !== view[PARENT]) {
+        detachMovedView(declarationContainer, view);
+      }
+
+      // For embedded views still attached to a container: remove query result from this view.
+      const lQueries = view[QUERIES];
+      if (lQueries !== null) {
+        lQueries.detachView(view[TVIEW]);
+      }
+    }
   }
 }
 
 /** Removes listeners and unsubscribes from output subscriptions */
 function removeListeners(lView: LView): void {
-  const tCleanup = lView[TVIEW].cleanup !;
-  if (tCleanup != null) {
+  const tCleanup = lView[TVIEW].cleanup;
+  if (tCleanup !== null) {
     const lCleanup = lView[CLEANUP] !;
     for (let i = 0; i < tCleanup.length - 1; i += 2) {
       if (typeof tCleanup[i] === 'string') {
-        // This is a listener with the native renderer
+        // This is a native DOM listener
         const idxOrTargetGetter = tCleanup[i + 1];
         const target = typeof idxOrTargetGetter === 'function' ?
             idxOrTargetGetter(lView) :
-            readElementValue(lView[idxOrTargetGetter]);
+            unwrapRNode(lView[idxOrTargetGetter]);
         const listener = lCleanup[tCleanup[i + 2]];
         const useCaptureOrSubIdx = tCleanup[i + 3];
         if (typeof useCaptureOrSubIdx === 'boolean') {
-          // DOM listener
+          // native DOM listener registered with Renderer3
           target.removeEventListener(tCleanup[i], listener, useCaptureOrSubIdx);
         } else {
           if (useCaptureOrSubIdx >= 0) {
@@ -470,10 +445,6 @@ function removeListeners(lView: LView): void {
           }
         }
         i += 2;
-      } else if (typeof tCleanup[i] === 'number') {
-        // This is a listener with renderer2 (cleanup fn can be found by index)
-        const cleanupFn = lCleanup[tCleanup[i]];
-        cleanupFn();
       } else {
         // This is a cleanup function that is grouped with the index of its context
         const context = lCleanup[tCleanup[i + 1]];
@@ -521,11 +492,16 @@ function getRenderParent(tNode: TNode, currentView: LView): RElement|null {
 
   // Skip over element and ICU containers as those are represented by a comment node and
   // can't be used as a render parent.
-  const parent = getHighestElementOrICUContainer(tNode).parent;
+  let parentTNode = tNode.parent;
+  while (parentTNode != null && (parentTNode.type === TNodeType.ElementContainer ||
+                                 parentTNode.type === TNodeType.IcuContainer)) {
+    tNode = parentTNode;
+    parentTNode = tNode.parent;
+  }
 
-  // If the parent is null, then we are inserting across views: either into an embedded view or a
-  // component view.
-  if (parent == null) {
+  // If the parent tNode is null, then we are inserting across views: either into an embedded view
+  // or a component view.
+  if (parentTNode == null) {
     const hostTNode = currentView[T_HOST] !;
     if (hostTNode.type === TNodeType.View) {
       // We are inserting a root element of an embedded view We might delay insertion of children
@@ -542,10 +518,17 @@ function getRenderParent(tNode: TNode, currentView: LView): RElement|null {
       return getHostNative(currentView);
     }
   } else {
-    ngDevMode && assertNodeType(parent, TNodeType.Element);
-    if (parent.flags & TNodeFlags.isComponent) {
+    const isIcuCase = tNode && tNode.type === TNodeType.IcuContainer;
+    // If the parent of this node is an ICU container, then it is represented by comment node and we
+    // need to use it as an anchor. If it is projected then it's direct parent node is the renderer.
+    if (isIcuCase && tNode.flags & TNodeFlags.isProjected) {
+      return getNativeByTNode(tNode, currentView).parentNode as RElement;
+    }
+
+    ngDevMode && assertNodeType(parentTNode, TNodeType.Element);
+    if (parentTNode.flags & TNodeFlags.isComponentHost) {
       const tData = currentView[TVIEW].data;
-      const tNode = tData[parent.index] as TNode;
+      const tNode = tData[parentTNode.index] as TNode;
       const encapsulation = (tData[tNode.directiveStart] as ComponentDef<any>).encapsulation;
 
       // We've got a parent which is an element in the current view. We just need to verify if the
@@ -560,7 +543,7 @@ function getRenderParent(tNode: TNode, currentView: LView): RElement|null {
       }
     }
 
-    return getNativeByTNode(parent, currentView) as RElement;
+    return getNativeByTNode(parentTNode, currentView) as RElement;
   }
 }
 
@@ -583,6 +566,7 @@ function getHostNative(currentView: LView): RElement|null {
  */
 export function nativeInsertBefore(
     renderer: Renderer3, parent: RElement, child: RNode, beforeNode: RNode | null): void {
+  ngDevMode && ngDevMode.rendererInsertBefore++;
   if (isProceduralRenderer(renderer)) {
     renderer.insertBefore(parent, child, beforeNode);
   } else {
@@ -591,6 +575,8 @@ export function nativeInsertBefore(
 }
 
 function nativeAppendChild(renderer: Renderer3, parent: RElement, child: RNode): void {
+  ngDevMode && ngDevMode.rendererAppendChild++;
+  ngDevMode && assertDefined(parent, 'parent node must be defined');
   if (isProceduralRenderer(renderer)) {
     renderer.appendChild(parent, child);
   } else {
@@ -600,7 +586,7 @@ function nativeAppendChild(renderer: Renderer3, parent: RElement, child: RNode):
 
 function nativeAppendOrInsertBefore(
     renderer: Renderer3, parent: RElement, child: RNode, beforeNode: RNode | null) {
-  if (beforeNode) {
+  if (beforeNode !== null) {
     nativeInsertBefore(renderer, parent, child, beforeNode);
   } else {
     nativeAppendChild(renderer, parent, child);
@@ -639,10 +625,10 @@ export function nativeNextSibling(renderer: Renderer3, node: RNode): RNode|null 
  */
 function getNativeAnchorNode(parentTNode: TNode, lView: LView): RNode|null {
   if (parentTNode.type === TNodeType.View) {
-    const lContainer = getLContainer(parentTNode as TViewNode, lView) !;
-    const views = lContainer[VIEWS];
-    const index = views.indexOf(lView);
-    return getBeforeNodeForView(index, views, lContainer[NATIVE]);
+    const lContainer = getLContainer(parentTNode as TViewNode, lView);
+    if (lContainer === null) return null;
+    const index = lContainer.indexOf(lView, CONTAINER_HEADER_OFFSET) - CONTAINER_HEADER_OFFSET;
+    return getBeforeNodeForView(index, lContainer);
   } else if (
       parentTNode.type === TNodeType.ElementContainer ||
       parentTNode.type === TNodeType.IcuContainer) {
@@ -668,8 +654,8 @@ export function appendChild(childEl: RNode | RNode[], childTNode: TNode, current
     const parentTNode: TNode = childTNode.parent || currentView[T_HOST] !;
     const anchorNode = getNativeAnchorNode(parentTNode, currentView);
     if (Array.isArray(childEl)) {
-      for (let nativeNode of childEl) {
-        nativeAppendOrInsertBefore(renderer, renderParent, nativeNode, anchorNode);
+      for (let i = 0; i < childEl.length; i++) {
+        nativeAppendOrInsertBefore(renderer, renderParent, childEl[i], anchorNode);
       }
     } else {
       nativeAppendOrInsertBefore(renderer, renderParent, childEl, anchorNode);
@@ -677,28 +663,28 @@ export function appendChild(childEl: RNode | RNode[], childTNode: TNode, current
   }
 }
 
-/**
- * Gets the top-level element or an ICU container if those containers are nested.
- *
- * @param tNode The starting TNode for which we should skip element and ICU containers
- * @returns The TNode of the highest level ICU container or element container
- */
-function getHighestElementOrICUContainer(tNode: TNode): TNode {
-  while (tNode.parent != null && (tNode.parent.type === TNodeType.ElementContainer ||
-                                  tNode.parent.type === TNodeType.IcuContainer)) {
-    tNode = tNode.parent;
+export function getBeforeNodeForView(viewIndexInContainer: number, lContainer: LContainer): RNode|
+    null {
+  const nextViewIndex = CONTAINER_HEADER_OFFSET + viewIndexInContainer + 1;
+  if (nextViewIndex < lContainer.length) {
+    const lView = lContainer[nextViewIndex] as LView;
+    ngDevMode && assertDefined(lView[T_HOST], 'Missing Host TNode');
+    let tViewNodeChild = (lView[T_HOST] as TViewNode).child;
+    if (tViewNodeChild !== null) {
+      if (tViewNodeChild.type === TNodeType.ElementContainer ||
+          tViewNodeChild.type === TNodeType.IcuContainer) {
+        let currentChild = tViewNodeChild.child;
+        while (currentChild && (currentChild.type === TNodeType.ElementContainer ||
+                                currentChild.type === TNodeType.IcuContainer)) {
+          currentChild = currentChild.child;
+        }
+        tViewNodeChild = currentChild || tViewNodeChild;
+      }
+      return getNativeByTNodeOrNull(tViewNodeChild, lView);
+    }
   }
-  return tNode;
-}
 
-export function getBeforeNodeForView(index: number, views: LView[], containerNative: RComment) {
-  if (index + 1 < views.length) {
-    const view = views[index + 1] as LView;
-    const viewTNode = view[T_HOST] as TViewNode;
-    return viewTNode.child ? getNativeByTNode(viewTNode.child, view) : containerNative;
-  } else {
-    return containerNative;
-  }
+  return lContainer[NATIVE];
 }
 
 /**
@@ -717,48 +703,168 @@ export function nativeRemoveNode(renderer: Renderer3, rNode: RNode, isHostElemen
   }
 }
 
+
 /**
- * Appends a projected node to the DOM, or in the case of a projected container,
- * appends the nodes from all of the container's active views to the DOM.
- *
- * @param projectedTNode The TNode to be projected
- * @param tProjectionNode The projection (ng-content) TNode
- * @param currentView Current LView
- * @param projectionView Projection view (view above current)
+ * Performs the operation of `action` on the node. Typically this involves inserting or removing
+ * nodes on the LView or projection boundary.
  */
-export function appendProjectedNode(
-    projectedTNode: TNode, tProjectionNode: TNode, currentView: LView,
-    projectionView: LView): void {
-  const native = getNativeByTNode(projectedTNode, projectionView);
-  appendChild(native, tProjectionNode, currentView);
-
-  // the projected contents are processed while in the shadow view (which is the currentView)
-  // therefore we need to extract the view where the host element lives since it's the
-  // logical container of the content projected views
-  attachPatchData(native, projectionView);
-
-  const nodeOrContainer = projectionView[projectedTNode.index];
-  if (projectedTNode.type === TNodeType.Container) {
-    // The node we are adding is a container and we are adding it to an element which
-    // is not a component (no more re-projection).
-    // Alternatively a container is projected at the root of a component's template
-    // and can't be re-projected (as not content of any component).
-    // Assign the final projection location in those cases.
-    const views = nodeOrContainer[VIEWS];
-    for (let i = 0; i < views.length; i++) {
-      addRemoveViewFromContainer(views[i], true, nodeOrContainer[NATIVE]);
-    }
-  } else {
-    if (projectedTNode.type === TNodeType.ElementContainer) {
-      let ngContainerChildTNode: TNode|null = projectedTNode.child as TNode;
-      while (ngContainerChildTNode) {
-        appendProjectedNode(ngContainerChildTNode, tProjectionNode, currentView, projectionView);
-        ngContainerChildTNode = ngContainerChildTNode.next;
+function applyNodes(
+    renderer: Renderer3, action: WalkTNodeTreeAction, tNode: TNode | null, lView: LView,
+    renderParent: RElement | null, beforeNode: RNode | null, isProjection: boolean) {
+  while (tNode != null) {
+    ngDevMode && assertTNodeForLView(tNode, lView);
+    ngDevMode && assertNodeOfPossibleTypes(
+                     tNode, TNodeType.Container, TNodeType.Element, TNodeType.ElementContainer,
+                     TNodeType.Projection, TNodeType.Projection, TNodeType.IcuContainer);
+    const rawSlotValue = lView[tNode.index];
+    const tNodeType = tNode.type;
+    if (isProjection) {
+      if (action === WalkTNodeTreeAction.Create) {
+        rawSlotValue && attachPatchData(unwrapRNode(rawSlotValue), lView);
+        tNode.flags |= TNodeFlags.isProjected;
       }
     }
-
-    if (isLContainer(nodeOrContainer)) {
-      appendChild(nodeOrContainer[NATIVE], tProjectionNode, currentView);
+    if ((tNode.flags & TNodeFlags.isDetached) !== TNodeFlags.isDetached) {
+      if (tNodeType === TNodeType.ElementContainer || tNodeType === TNodeType.IcuContainer) {
+        applyNodes(renderer, action, tNode.child, lView, renderParent, beforeNode, false);
+        applyToElementOrContainer(action, renderer, renderParent, rawSlotValue, beforeNode);
+      } else if (tNodeType === TNodeType.Projection) {
+        applyProjectionRecursive(
+            renderer, action, lView, tNode as TProjectionNode, renderParent, beforeNode);
+      } else {
+        ngDevMode && assertNodeOfPossibleTypes(tNode, TNodeType.Element, TNodeType.Container);
+        applyToElementOrContainer(action, renderer, renderParent, rawSlotValue, beforeNode);
+      }
     }
+    tNode = isProjection ? tNode.projectionNext : tNode.next;
+  }
+}
+
+
+/**
+ * `applyView` performs operation on the view as specified in `action` (insert, detach, destroy)
+ *
+ * Inserting a view without projection or containers at top level is simple. Just iterate over the
+ * root nodes of the View, and for each node perform the `action`.
+ *
+ * Things get more complicated with containers and projections. That is because coming across:
+ * - Container: implies that we have to insert/remove/destroy the views of that container as well
+ *              which in turn can have their own Containers at the View roots.
+ * - Projection: implies that we have to insert/remove/destroy the nodes of the projection. The
+ *               complication is that the nodes we are projecting can themselves have Containers
+ *               or other Projections.
+ *
+ * As you can see this is a very recursive problem. Yes recursion is not most efficient but the
+ * code is complicated enough that trying to implemented with recursion becomes unmaintainable.
+ *
+ * @param renderer Renderer to use
+ * @param action action to perform (insert, detach, destroy)
+ * @param lView The LView which needs to be inserted, detached, destroyed.
+ * @param renderParent parent DOM element for insertion/removal.
+ * @param beforeNode Before which node the insertions should happen.
+ */
+function applyView(
+    renderer: Renderer3, action: WalkTNodeTreeAction, lView: LView, renderParent: RElement | null,
+    beforeNode: RNode | null) {
+  const tView = lView[TVIEW];
+  ngDevMode && assertNodeType(tView.node !, TNodeType.View);
+  const viewRootTNode: TNode|null = tView.node !.child;
+  applyNodes(renderer, action, viewRootTNode, lView, renderParent, beforeNode, false);
+}
+
+/**
+ * `applyProjection` performs operation on the projection.
+ *
+ * Inserting a projection requires us to locate the projected nodes from the parent component. The
+ * complication is that those nodes themselves could be re-projected from their parent component.
+ *
+ * @param lView The LView which needs to be inserted, detached, destroyed.
+ * @param tProjectionNode node to project
+ */
+export function applyProjection(lView: LView, tProjectionNode: TProjectionNode) {
+  const renderer = lView[RENDERER];
+  const renderParent = getRenderParent(tProjectionNode, lView);
+  const parentTNode = tProjectionNode.parent || lView[T_HOST] !;
+  let beforeNode = getNativeAnchorNode(parentTNode, lView);
+  applyProjectionRecursive(
+      renderer, WalkTNodeTreeAction.Create, lView, tProjectionNode, renderParent, beforeNode);
+}
+
+/**
+ * `applyProjectionRecursive` performs operation on the projection specified by `action` (insert,
+ * detach, destroy)
+ *
+ * Inserting a projection requires us to locate the projected nodes from the parent component. The
+ * complication is that those nodes themselves could be re-projected from their parent component.
+ *
+ * @param renderer Render to use
+ * @param action action to perform (insert, detach, destroy)
+ * @param lView The LView which needs to be inserted, detached, destroyed.
+ * @param tProjectionNode node to project
+ * @param renderParent parent DOM element for insertion/removal.
+ * @param beforeNode Before which node the insertions should happen.
+ */
+function applyProjectionRecursive(
+    renderer: Renderer3, action: WalkTNodeTreeAction, lView: LView,
+    tProjectionNode: TProjectionNode, renderParent: RElement | null, beforeNode: RNode | null) {
+  const componentLView = findComponentView(lView);
+  const componentNode = componentLView[T_HOST] as TElementNode;
+  ngDevMode &&
+      assertEqual(typeof tProjectionNode.projection, 'number', 'expecting projection index');
+  const nodeToProjectOrRNodes = componentNode.projection ![tProjectionNode.projection] !;
+  if (Array.isArray(nodeToProjectOrRNodes)) {
+    // This should not exist, it is a bit of a hack. When we bootstrap a top level node and we
+    // need to support passing projectable nodes, so we cheat and put them in the TNode
+    // of the Host TView. (Yes we put instance info at the T Level). We can get away with it
+    // because we know that that TView is not shared and therefore it will not be a problem.
+    // This should be refactored and cleaned up.
+    for (let i = 0; i < nodeToProjectOrRNodes.length; i++) {
+      const rNode = nodeToProjectOrRNodes[i];
+      applyToElementOrContainer(action, renderer, renderParent, rNode, beforeNode);
+    }
+  } else {
+    let nodeToProject: TNode|null = nodeToProjectOrRNodes;
+    const projectedComponentLView = componentLView[PARENT] as LView;
+    applyNodes(
+        renderer, action, nodeToProject, projectedComponentLView, renderParent, beforeNode, true);
+  }
+}
+
+
+/**
+ * `applyContainer` performs an operation on the container and its views as specified by
+ * `action` (insert, detach, destroy)
+ *
+ * Inserting a Container is complicated by the fact that the container may have Views which
+ * themselves have containers or projections.
+ *
+ * @param renderer Renderer to use
+ * @param action action to perform (insert, detach, destroy)
+ * @param lContainer The LContainer which needs to be inserted, detached, destroyed.
+ * @param renderParent parent DOM element for insertion/removal.
+ * @param beforeNode Before which node the insertions should happen.
+ */
+function applyContainer(
+    renderer: Renderer3, action: WalkTNodeTreeAction, lContainer: LContainer,
+    renderParent: RElement | null, beforeNode: RNode | null | undefined) {
+  ngDevMode && assertLContainer(lContainer);
+  const anchor = lContainer[NATIVE];  // LContainer has its own before node.
+  const native = unwrapRNode(lContainer);
+  // An LContainer can be created dynamically on any node by injecting ViewContainerRef.
+  // Asking for a ViewContainerRef on an element will result in a creation of a separate anchor node
+  // (comment in the DOM) that will be different from the LContainer's host node. In this particular
+  // case we need to execute action on 2 nodes:
+  // - container's host node (this is done in the executeActionOnElementOrContainer)
+  // - container's host node (this is done here)
+  if (anchor !== native) {
+    // This is very strange to me (Misko). I would expect that the native is same as anchor. I don't
+    // see a reason why they should be different, but they are.
+    //
+    // If they are we need to process the second anchor as well.
+    applyToElementOrContainer(action, renderer, renderParent, anchor, beforeNode);
+  }
+  for (let i = CONTAINER_HEADER_OFFSET; i < lContainer.length; i++) {
+    const lView = lContainer[i] as LView;
+    applyView(renderer, action, lView, renderParent, anchor);
   }
 }

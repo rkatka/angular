@@ -7,7 +7,7 @@
  */
 
 import {ApplicationRef} from '../application_ref';
-import {InjectorType, defineInjector} from '../di/interface/defs';
+import {InjectorType, ɵɵdefineInjector} from '../di/interface/defs';
 import {Provider} from '../di/interface/provider';
 import {convertInjectableProviderToFactory} from '../di/util';
 import {Type} from '../interface/type';
@@ -32,7 +32,10 @@ export interface NgModuleTransitiveScopes {
   schemas: SchemaMetadata[]|null;
 }
 
-export type NgModuleDefWithMeta<T, Declarations, Imports, Exports> = NgModuleDef<T>;
+/**
+ * @publicApi
+ */
+export type ɵɵNgModuleDefWithMeta<T, Declarations, Imports, Exports> = NgModuleDef<T>;
 
 /**
  * Runtime link information for NgModules.
@@ -40,7 +43,7 @@ export type NgModuleDefWithMeta<T, Declarations, Imports, Exports> = NgModuleDef
  * This is the internal data structure used by the runtime to assemble components, directives,
  * pipes, and injectors.
  *
- * NOTE: Always use `defineNgModule` function to create this object,
+ * NOTE: Always use `ɵɵdefineNgModule` function to create this object,
  * never create the object directly since the shape of this object
  * can change between versions.
  */
@@ -49,19 +52,19 @@ export interface NgModuleDef<T> {
   type: T;
 
   /** List of components to bootstrap. */
-  bootstrap: Type<any>[];
+  bootstrap: Type<any>[]|(() => Type<any>[]);
 
   /** List of components, directives, and pipes declared by this module. */
-  declarations: Type<any>[];
+  declarations: Type<any>[]|(() => Type<any>[]);
 
   /** List of modules or `ModuleWithProviders` imported by this module. */
-  imports: Type<any>[];
+  imports: Type<any>[]|(() => Type<any>[]);
 
   /**
    * List of modules, `ModuleWithProviders`, components, directives, or pipes exported by this
    * module.
    */
-  exports: Type<any>[];
+  exports: Type<any>[]|(() => Type<any>[]);
 
   /**
    * Cached value of computed `transitiveCompileScopes` for this module.
@@ -72,6 +75,9 @@ export interface NgModuleDef<T> {
 
   /** The set of schemas that declare elements to be allowed in the NgModule. */
   schemas: SchemaMetadata[]|null;
+
+  /** Unique ID for the module with which it should be registered.  */
+  id: string|null;
 }
 
 /**
@@ -79,6 +85,9 @@ export interface NgModuleDef<T> {
  *
  * @param T the module type. In Ivy applications, this must be explicitly
  * provided.
+ *
+ * Note that using ModuleWithProviders without a generic type is deprecated.
+ * The generic will become required in a future version of Angular.
  *
  * @publicApi
  */
@@ -91,10 +100,12 @@ export interface ModuleWithProviders<
 
 /**
  * Type of the NgModule decorator / constructor function.
+ *
+ * @publicApi
  */
 export interface NgModuleDecorator {
   /**
-   * Marks a class as an NgModule and supplies configuration metadata.
+   * Decorator that marks a class as an NgModule and supplies configuration metadata.
    */
   (obj?: NgModule): TypeDecorator;
   new (obj?: NgModule): NgModule;
@@ -198,7 +209,7 @@ export interface NgModule {
    *
    * ### Example
    *
-   * The following example allows MainModule to use anthing exported by
+   * The following example allows MainModule to use anything exported by
    * `CommonModule`:
    *
    * ```javascript
@@ -257,6 +268,7 @@ export interface NgModule {
    * using one of the imperative techniques, such as `ViewContainerRef.createComponent()`.
    *
    * @see [Entry Components](guide/entry-components)
+   * @deprecated Since 9.0.0. With Ivy, this property is no longer necessary.
    */
   entryComponents?: Array<Type<any>|any[]>;
 
@@ -312,7 +324,7 @@ export const NgModule: NgModuleDecorator = makeDecorator(
      * * The `imports` and `exports` options bring in members from other modules, and make
      * this module's members available to others.
      */
-    (type: NgModuleType, meta: NgModule) => SWITCH_COMPILE_NGMODULE(type, meta));
+    (type: Type<any>, meta: NgModule) => SWITCH_COMPILE_NGMODULE(type, meta));
 
 /**
  * @description
@@ -336,13 +348,13 @@ export const NgModule: NgModuleDecorator = makeDecorator(
  */
 export interface DoBootstrap { ngDoBootstrap(appRef: ApplicationRef): void; }
 
-function preR3NgModuleCompile(moduleType: InjectorType<any>, metadata: NgModule): void {
+function preR3NgModuleCompile(moduleType: Type<any>, metadata?: NgModule): void {
   let imports = (metadata && metadata.imports) || [];
   if (metadata && metadata.exports) {
     imports = [...imports, metadata.exports];
   }
 
-  moduleType.ngInjectorDef = defineInjector({
+  (moduleType as InjectorType<any>).ɵinj = ɵɵdefineInjector({
     factory: convertInjectableProviderToFactory(moduleType, {useClass: moduleType}),
     providers: metadata && metadata.providers,
     imports: imports,

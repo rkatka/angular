@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {defineInjectable} from '../../di/interface/defs';
+import {ɵɵdefineInjectable} from '../../di/interface/defs';
 import {StaticProvider} from '../../di/interface/provider';
 import {Optional, SkipSelf} from '../../di/metadata';
 import {DefaultIterableDifferFactory} from '../differs/default_iterable_differ';
@@ -34,7 +34,7 @@ export interface IterableDiffer<V> {
    * @returns an object describing the difference. The return value is only valid until the next
    * `diff()` invocation.
    */
-  diff(object: NgIterable<V>): IterableChanges<V>|null;
+  diff(object: NgIterable<V>|undefined|null): IterableChanges<V>|null;
 }
 
 /**
@@ -143,7 +143,8 @@ export interface IterableDifferFactory {
  */
 export class IterableDiffers {
   /** @nocollapse */
-  static ngInjectableDef = defineInjectable({
+  static ɵprov = ɵɵdefineInjectable({
+    token: IterableDiffers,
     providedIn: 'root',
     factory: () => new IterableDiffers([new DefaultIterableDifferFactory()])
   });

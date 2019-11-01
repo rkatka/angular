@@ -8,7 +8,6 @@
 
 'use strict';
 
-
 // THIS CHECK SHOULD BE THE FIRST THING IN THIS FILE
 // This is to ensure that we catch env issues before we error while requiring other dependencies.
 const engines = require('./package.json').engines;
@@ -54,6 +53,7 @@ gulp.task('tools:build', loadTask('tools-build'));
 gulp.task('check-cycle', loadTask('check-cycle'));
 gulp.task('serve', loadTask('serve', 'default'));
 gulp.task('changelog', loadTask('changelog'));
+gulp.task('changelog:zonejs', loadTask('changelog-zonejs'));
 gulp.task('check-env', () => {/* this is a noop because the env test ran already above */});
 gulp.task('cldr:extract', loadTask('cldr', 'extract'));
 gulp.task('cldr:download', loadTask('cldr', 'download'));

@@ -11,19 +11,27 @@ import {share} from 'rxjs/operators';
 
 import {ApplicationInitStatus} from './application_init';
 import {APP_BOOTSTRAP_LISTENER, PLATFORM_INITIALIZER} from './application_tokens';
+import {getCompilerFacade} from './compiler/compiler_facade';
 import {Console} from './console';
 import {Injectable, InjectionToken, Injector, StaticProvider} from './di';
+import {INJECTOR_SCOPE} from './di/scope';
 import {ErrorHandler} from './error_handler';
+import {DEFAULT_LOCALE_ID} from './i18n/localization';
+import {LOCALE_ID} from './i18n/tokens';
 import {Type} from './interface/type';
-import {CompilerFactory, CompilerOptions} from './linker/compiler';
+import {ivyEnabled} from './ivy_switch';
+import {COMPILER_OPTIONS, CompilerFactory, CompilerOptions} from './linker/compiler';
 import {ComponentFactory, ComponentRef} from './linker/component_factory';
 import {ComponentFactoryBoundToModule, ComponentFactoryResolver} from './linker/component_factory_resolver';
 import {InternalNgModuleRef, NgModuleFactory, NgModuleRef} from './linker/ng_module_factory';
 import {InternalViewRef, ViewRef} from './linker/view_ref';
+import {isComponentResourceResolutionQueueEmpty, resolveComponentResources} from './metadata/resource_loading';
 import {WtfScopeFn, wtfCreateScope, wtfLeave} from './profile/profile';
 import {assertNgModuleType} from './render3/assert';
 import {ComponentFactory as R3ComponentFactory} from './render3/component_ref';
+import {setLocaleId} from './render3/i18n';
 import {NgModuleFactory as R3NgModuleFactory} from './render3/ng_module_ref';
+import {publishDefaultGlobalUtils as _publishDefaultGlobalUtils} from './render3/util/global_utils';
 import {Testability, TestabilityRegistry} from './testability/testability';
 import {isDevMode} from './util/is_dev_mode';
 import {isPromise} from './util/lang';
@@ -49,8 +57,41 @@ export function compileNgModuleFactory__POST_R3__<M>(
     injector: Injector, options: CompilerOptions,
     moduleType: Type<M>): Promise<NgModuleFactory<M>> {
   ngDevMode && assertNgModuleType(moduleType);
-  return Promise.resolve(new R3NgModuleFactory(moduleType));
+  const moduleFactory = new R3NgModuleFactory(moduleType);
+
+  if (isComponentResourceResolutionQueueEmpty()) {
+    return Promise.resolve(moduleFactory);
+  }
+
+  const compilerOptions = injector.get(COMPILER_OPTIONS, []).concat(options);
+  const compilerProviders = _mergeArrays(compilerOptions.map(o => o.providers !));
+
+  // In case there are no compiler providers, we just return the module factory as
+  // there won't be any resource loader. This can happen with Ivy, because AOT compiled
+  // modules can be still passed through "bootstrapModule". In that case we shouldn't
+  // unnecessarily require the JIT compiler.
+  if (compilerProviders.length === 0) {
+    return Promise.resolve(moduleFactory);
+  }
+
+  const compiler = getCompilerFacade();
+  const compilerInjector = Injector.create({providers: compilerProviders});
+  const resourceLoader = compilerInjector.get(compiler.ResourceLoader);
+  // The resource loader can also return a string while the "resolveComponentResources"
+  // always expects a promise. Therefore we need to wrap the returned value in a promise.
+  return resolveComponentResources(url => Promise.resolve(resourceLoader.get(url)))
+      .then(() => moduleFactory);
 }
+
+// the `window.ng` global utilities are only available in non-VE versions of
+// Angular. The function switch below will make sure that the code is not
+// included into Angular when PRE mode is active.
+export function publishDefaultGlobalUtils__PRE_R3__() {}
+export function publishDefaultGlobalUtils__POST_R3__() {
+  ngDevMode && _publishDefaultGlobalUtils();
+}
+
+let publishDefaultGlobalUtils: () => any = publishDefaultGlobalUtils__PRE_R3__;
 
 let isBoundToModule: <C>(cf: ComponentFactory<C>) => boolean = isBoundToModule__PRE_R3__;
 
@@ -87,6 +128,7 @@ export function createPlatform(injector: Injector): PlatformRef {
     throw new Error(
         'There can be only one platform. Destroy the previous one to create a new one.');
   }
+  publishDefaultGlobalUtils();
   _platform = injector.get(PlatformRef);
   const inits = injector.get(PLATFORM_INITIALIZER, null);
   if (inits) inits.forEach((init: any) => init());
@@ -112,7 +154,10 @@ export function createPlatformFactory(
             providers.concat(extraProviders).concat({provide: marker, useValue: true}));
       } else {
         const injectedProviders: StaticProvider[] =
-            providers.concat(extraProviders).concat({provide: marker, useValue: true});
+            providers.concat(extraProviders).concat({provide: marker, useValue: true}, {
+              provide: INJECTOR_SCOPE,
+              useValue: 'platform'
+            });
         createPlatform(Injector.create({providers: injectedProviders, name: desc}));
       }
     }
@@ -232,9 +277,14 @@ export class PlatformRef {
       const ngZoneInjector = Injector.create(
           {providers: providers, parent: this.injector, name: moduleFactory.moduleType.name});
       const moduleRef = <InternalNgModuleRef<M>>moduleFactory.create(ngZoneInjector);
-      const exceptionHandler: ErrorHandler = moduleRef.injector.get(ErrorHandler, null);
+      const exceptionHandler: ErrorHandler|null = moduleRef.injector.get(ErrorHandler, null);
       if (!exceptionHandler) {
         throw new Error('No ErrorHandler. Is platform module (BrowserModule) included?');
+      }
+      // If the `LOCALE_ID` provider is defined at bootstrap we set the value for runtime i18n (ivy)
+      if (ivyEnabled) {
+        const localeId = moduleRef.injector.get(LOCALE_ID, DEFAULT_LOCALE_ID);
+        setLocaleId(localeId || DEFAULT_LOCALE_ID);
       }
       moduleRef.onDestroy(() => remove(this._modules, moduleRef));
       ngZone !.runOutsideAngular(
@@ -568,7 +618,8 @@ export class ApplicationRef {
     this.componentTypes.push(componentFactory.componentType);
 
     // Create a factory associated with the current module if it's not bound to some other
-    const ngModule = isBoundToModule(componentFactory) ? null : this._injector.get(NgModuleRef);
+    const ngModule =
+        isBoundToModule(componentFactory) ? undefined : this._injector.get(NgModuleRef);
     const selectorOrNode = rootSelectorOrNode || componentFactory.selector;
     const compRef = componentFactory.create(Injector.NULL, [], selectorOrNode, ngModule);
 
@@ -605,9 +656,13 @@ export class ApplicationRef {
     const scope = ApplicationRef._tickScope();
     try {
       this._runningTick = true;
-      this._views.forEach((view) => view.detectChanges());
+      for (let view of this._views) {
+        view.detectChanges();
+      }
       if (this._enforceNoNewChanges) {
-        this._views.forEach((view) => view.checkNoChanges());
+        for (let view of this._views) {
+          view.checkNoChanges();
+        }
       }
     } catch (e) {
       // Attention: Don't rethrow as it could cancel subscriptions to Observables!
@@ -670,4 +725,10 @@ function remove<T>(list: T[], el: T): void {
   if (index > -1) {
     list.splice(index, 1);
   }
+}
+
+function _mergeArrays(parts: any[][]): any[] {
+  const result: any[] = [];
+  parts.forEach((part) => part && result.push(...part));
+  return result;
 }

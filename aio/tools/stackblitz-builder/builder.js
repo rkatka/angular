@@ -221,9 +221,7 @@ class StackblitzBuilder {
 
   _encodeBase64(file) {
     // read binary data
-    var bitmap = fs.readFileSync(file);
-    // convert binary data to base64 encoded string
-    return Buffer(bitmap).toString('base64');
+    return fs.readFileSync(file, { encoding: 'base64' });
   }
 
   _existsSync(filename) {
@@ -251,7 +249,7 @@ class StackblitzBuilder {
       throw new Error(`Stackblitz config - unable to parse json file: ${configFileName}\n${e}`);
     }
 
-    var defaultIncludes = ['**/*.ts', '**/*.js', '**/*.css', '**/*.html', '**/*.md', '**/*.json', '**/*.png'];
+    var defaultIncludes = ['**/*.ts', '**/*.js', '**/*.css', '**/*.html', '**/*.md', '**/*.json', '**/*.png', '**/*.svg'];
     var boilerplateIncludes = ['src/environments/*.*', 'angular.json', 'src/polyfills.ts'];
     if (config.files) {
       if (config.files.length > 0) {

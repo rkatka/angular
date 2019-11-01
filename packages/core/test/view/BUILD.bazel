@@ -1,6 +1,6 @@
-package(default_visibility = ["//visibility:public"])
-
 load("//tools:defaults.bzl", "jasmine_node_test", "ts_library", "ts_web_test_suite")
+
+package(default_visibility = ["//visibility:public"])
 
 ts_library(
     name = "view_lib",
@@ -9,6 +9,7 @@ ts_library(
         ["**/*.ts"],
     ),
     deps = [
+        "//packages/common",
         "//packages/core",
         "//packages/core/src/di/interface",
         "//packages/core/src/interface",

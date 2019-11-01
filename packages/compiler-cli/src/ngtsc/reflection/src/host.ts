@@ -9,9 +9,12 @@
 import * as ts from 'typescript';
 
 /**
- * Metadata extracted from an instance of a decorator on another declaration.
+ * Metadata extracted from an instance of a decorator on another declaration, or synthesized from
+ * other information about a class.
  */
-export interface Decorator {
+export type Decorator = ConcreteDecorator | SyntheticDecorator;
+
+export interface BaseDecorator {
   /**
    * Name by which the decorator was invoked in the user's code.
    *
@@ -21,9 +24,9 @@ export interface Decorator {
   name: string;
 
   /**
-   * Identifier which refers to the decorator in source.
+   * Identifier which refers to the decorator in the user's code.
    */
-  identifier: ts.Identifier;
+  identifier: DecoratorIdentifier|null;
 
   /**
    * `Import` by which the decorator was brought into the module in which it was invoked, or `null`
@@ -32,15 +35,81 @@ export interface Decorator {
   import : Import | null;
 
   /**
-   * TypeScript reference to the decorator itself.
+   * TypeScript reference to the decorator itself, or `null` if the decorator is synthesized (e.g.
+   * in ngcc).
    */
-  node: ts.Node;
+  node: ts.Node|null;
 
   /**
-   * Arguments of the invocation of the decorator, if the decorator is invoked, or `null` otherwise.
+   * Arguments of the invocation of the decorator, if the decorator is invoked, or `null`
+   * otherwise.
    */
   args: ts.Expression[]|null;
 }
+
+/**
+ * Metadata extracted from an instance of a decorator on another declaration, which was actually
+ * present in a file.
+ *
+ * Concrete decorators always have an `identifier` and a `node`.
+ */
+export interface ConcreteDecorator extends BaseDecorator {
+  identifier: DecoratorIdentifier;
+  node: ts.Node;
+}
+
+/**
+ * Synthetic decorators never have an `identifier` or a `node`, but know the node for which they
+ * were synthesized.
+ */
+export interface SyntheticDecorator extends BaseDecorator {
+  identifier: null;
+  node: null;
+
+  /**
+   * The `ts.Node` for which this decorator was created.
+   */
+  synthesizedFor: ts.Node;
+}
+
+export const Decorator = {
+  nodeForError: (decorator: Decorator): ts.Node => {
+    if (decorator.node !== null) {
+      return decorator.node;
+    } else {
+      // TODO(alxhub): we can't rely on narrowing until TS 3.6 is in g3.
+      return (decorator as SyntheticDecorator).synthesizedFor;
+    }
+  },
+};
+
+/**
+ * A decorator is identified by either a simple identifier (e.g. `Decorator`) or, in some cases,
+ * a namespaced property access (e.g. `core.Decorator`).
+ */
+export type DecoratorIdentifier = ts.Identifier | NamespacedIdentifier;
+export type NamespacedIdentifier = ts.PropertyAccessExpression & {expression: ts.Identifier};
+export function isDecoratorIdentifier(exp: ts.Expression): exp is DecoratorIdentifier {
+  return ts.isIdentifier(exp) ||
+      ts.isPropertyAccessExpression(exp) && ts.isIdentifier(exp.expression);
+}
+
+/**
+ * The `ts.Declaration` of a "class".
+ *
+ * Classes are represented differently in different code formats:
+ * - In TS code, they are typically defined using the `class` keyword.
+ * - In ES2015 code, they are usually defined using the `class` keyword, but they can also be
+ *   variable declarations, which are initialized to a class expression (e.g.
+ *   `let Foo = Foo1 = class Foo {}`).
+ * - In ES5 code, they are typically defined as variable declarations being assigned the return
+ *   value of an IIFE. The actual "class" is implemented as a constructor function inside the IIFE,
+ *   but the outer variable declaration represents the "class" to the rest of the program.
+ *
+ * For `ReflectionHost` purposes, a class declaration should always have a `name` identifier,
+ * because we need to be able to reference it in other parts of the program.
+ */
+export type ClassDeclaration<T extends ts.Declaration = ts.Declaration> = T & {name: ts.Identifier};
 
 /**
  * An enumeration of possible kinds of class members.
@@ -152,6 +221,31 @@ export interface ClassMember {
 }
 
 /**
+ * A reference to a value that originated from a type position.
+ *
+ * For example, a constructor parameter could be declared as `foo: Foo`. A `TypeValueReference`
+ * extracted from this would refer to the value of the class `Foo` (assuming it was actually a
+ * type).
+ *
+ * There are two kinds of such references. A reference with `local: false` refers to a type that was
+ * imported, and gives the symbol `name` and the `moduleName` of the import. Note that this
+ * `moduleName` may be a relative path, and thus is likely only valid within the context of the file
+ * which contained the original type reference.
+ *
+ * A reference with `local: true` refers to any other kind of type via a `ts.Expression` that's
+ * valid within the local file where the type was referenced.
+ */
+export type TypeValueReference = {
+  local: true; expression: ts.Expression; defaultImportStatement: ts.ImportDeclaration | null;
+} |
+{
+  local: false;
+  name: string;
+  moduleName: string;
+  valueDeclaration: ts.Declaration;
+};
+
+/**
  * A parameter to a constructor.
  */
 export interface CtorParameter {
@@ -172,18 +266,22 @@ export interface CtorParameter {
   nameNode: ts.BindingName;
 
   /**
-   * TypeScript `ts.Expression` representing the type value of the parameter, if the type is a
-   * simple
-   * expression type that can be converted to a value.
+   * Reference to the value of the parameter's type annotation, if it's possible to refer to the
+   * parameter's type as a value.
    *
-   * If the type is not present or cannot be represented as an expression, `type` is `null`.
+   * This can either be a reference to a local value, in which case it has `local` set to `true` and
+   * contains a `ts.Expression`, or it's a reference to an imported value, in which case `local` is
+   * set to `false` and the symbol and module name of the imported value are provided instead.
+   *
+   * If the type is not present or cannot be represented as an expression, `typeValueReference` is
+   * `null`.
    */
-  typeExpression: ts.Expression|null;
+  typeValueReference: TypeValueReference|null;
 
   /**
    * TypeScript `ts.TypeNode` representing the type node found in the type position.
    *
-   * This field can be used for diagnostics reporting if `typeExpression` is `null`.
+   * This field can be used for diagnostics reporting if `typeValueReference` is `null`.
    *
    * Can be null, if the param has no type declared.
    */
@@ -202,15 +300,16 @@ export interface CtorParameter {
  * itself. In ES5 code this can be more complicated, as the default values for parameters may
  * be extracted from certain body statements.
  */
-export interface FunctionDefinition<T extends ts.MethodDeclaration|ts.FunctionDeclaration|
-                                    ts.FunctionExpression> {
+export interface FunctionDefinition {
   /**
    * A reference to the node which declares the function.
    */
-  node: T;
+  node: ts.MethodDeclaration|ts.FunctionDeclaration|ts.FunctionExpression|ts.VariableDeclaration;
 
   /**
-   * Statements of the function body, if a body is present, or null if no body is present.
+   * Statements of the function body, if a body is present, or null if no body is present or the
+   * function is identified to represent a tslib helper function, in which case `helper` will
+   * indicate which helper this function represents.
    *
    * This list may have been filtered to exclude statements which perform parameter default value
    * initialization.
@@ -218,9 +317,25 @@ export interface FunctionDefinition<T extends ts.MethodDeclaration|ts.FunctionDe
   body: ts.Statement[]|null;
 
   /**
+   * The type of tslib helper function, if the function is determined to represent a tslib helper
+   * function. Otherwise, this will be null.
+   */
+  helper: TsHelperFn|null;
+
+  /**
    * Metadata regarding the function's parameters, including possible default value expressions.
    */
   parameters: Parameter[];
+}
+
+/**
+ * Possible functions from TypeScript's helper library.
+ */
+export enum TsHelperFn {
+  /**
+   * Indicates the `__spread` function.
+   */
+  Spread,
 }
 
 /**
@@ -262,28 +377,65 @@ export interface Import {
 }
 
 /**
- * The declaration of a symbol, along with information about how it was imported into the
- * application.
+ * Base type for all `Declaration`s.
  */
-export interface Declaration {
-  /**
-   * TypeScript reference to the declaration itself.
-   */
-  node: ts.Declaration;
-
+export interface BaseDeclaration<T extends ts.Declaration = ts.Declaration> {
   /**
    * The absolute module path from which the symbol was imported into the application, if the symbol
    * was imported via an absolute module (even through a chain of re-exports). If the symbol is part
    * of the application and was not imported from an absolute path, this will be `null`.
    */
   viaModule: string|null;
+
+  /**
+   * TypeScript reference to the declaration itself, if one exists.
+   */
+  node: T|null;
 }
+
+/**
+ * A declaration that has an associated TypeScript `ts.Declaration`.
+ *
+ * The alternative is an `InlineDeclaration`.
+ */
+export interface ConcreteDeclaration<T extends ts.Declaration = ts.Declaration> extends
+    BaseDeclaration<T> {
+  node: T;
+}
+
+/**
+ * A declaration that does not have an associated TypeScript `ts.Declaration`, only a
+ * `ts.Expression`.
+ *
+ * This can occur in some downlevelings when an `export const VAR = ...;` (a `ts.Declaration`) is
+ * transpiled to an assignment statement (e.g. `exports.VAR = ...;`). There is no `ts.Declaration`
+ * associated with `VAR` in that case, only an expression.
+ */
+export interface InlineDeclaration extends BaseDeclaration {
+  node: null;
+
+  /**
+   * The `ts.Expression` which constitutes the value of the declaration.
+   */
+  expression: ts.Expression;
+}
+
+/**
+ * The declaration of a symbol, along with information about how it was imported into the
+ * application.
+ *
+ * This can either be a `ConcreteDeclaration` if the underlying TypeScript node for the symbol is an
+ * actual `ts.Declaration`, or an `InlineDeclaration` if the declaration was transpiled in certain
+ * downlevelings to a `ts.Expression` instead.
+ */
+export type Declaration<T extends ts.Declaration = ts.Declaration> =
+    ConcreteDeclaration<T>| InlineDeclaration;
 
 /**
  * Abstracts reflection operations on a TypeScript AST.
  *
- * Depending on the format of the code being interpreted, different concepts are represented with
- * different syntactical structures. The `ReflectionHost` abstracts over those differences and
+ * Depending on the format of the code being interpreted, different concepts are represented
+ * with different syntactical structures. The `ReflectionHost` abstracts over those differences and
  * presents a single API by which the compiler can query specific information about the AST.
  *
  * All operations on the `ReflectionHost` require the use of TypeScript `ts.Node`s with binding
@@ -302,7 +454,7 @@ export interface ReflectionHost {
    * result of an IIFE execution.
    *
    * @returns an array of `Decorator` metadata if decorators are present on the declaration, or
-   * `null` if either no decorators were present or if the declaration is not of a decorable type.
+   * `null` if either no decorators were present or if the declaration is not of a decoratable type.
    */
   getDecoratorsOfDeclaration(declaration: ts.Declaration): Decorator[]|null;
 
@@ -310,16 +462,13 @@ export interface ReflectionHost {
    * Examine a declaration which should be of a class, and return metadata about the members of the
    * class.
    *
-   * @param declaration a TypeScript `ts.Declaration` node representing the class over which to
-   * reflect. If the source is in ES6 format, this will be a `ts.ClassDeclaration` node. If the
-   * source is in ES5 format, this might be a `ts.VariableDeclaration` as classes in ES5 are
-   * represented as the result of an IIFE execution.
+   * @param clazz a `ClassDeclaration` representing the class over which to reflect.
    *
    * @returns an array of `ClassMember` metadata representing the members of the class.
    *
    * @throws if `declaration` does not resolve to a class declaration.
    */
-  getMembersOfClass(clazz: ts.Declaration): ClassMember[];
+  getMembersOfClass(clazz: ClassDeclaration): ClassMember[];
 
   /**
    * Reflect over the constructor of a class and return metadata about its parameters.
@@ -327,16 +476,13 @@ export interface ReflectionHost {
    * This method only looks at the constructor of a class directly and not at any inherited
    * constructors.
    *
-   * @param declaration a TypeScript `ts.Declaration` node representing the class over which to
-   * reflect. If the source is in ES6 format, this will be a `ts.ClassDeclaration` node. If the
-   * source is in ES5 format, this might be a `ts.VariableDeclaration` as classes in ES5 are
-   * represented as the result of an IIFE execution.
+   * @param clazz a `ClassDeclaration` representing the class over which to reflect.
    *
    * @returns an array of `Parameter` metadata representing the parameters of the constructor, if
    * a constructor exists. If the constructor exists and has 0 parameters, this array will be empty.
    * If the class has no constructor, this method returns `null`.
    */
-  getConstructorParameters(declaration: ts.Declaration): CtorParameter[]|null;
+  getConstructorParameters(clazz: ClassDeclaration): CtorParameter[]|null;
 
   /**
    * Reflect over a function and return metadata about its parameters and body.
@@ -358,8 +504,7 @@ export interface ReflectionHost {
    *
    * @returns a `FunctionDefinition` giving metadata about the function definition.
    */
-  getDefinitionOfFunction<T extends ts.MethodDeclaration|ts.FunctionDeclaration|
-                          ts.FunctionExpression>(fn: T): FunctionDefinition<T>;
+  getDefinitionOfFunction(fn: ts.Node): FunctionDefinition|null;
 
   /**
    * Determine if an identifier was imported from another module and return `Import` metadata
@@ -423,20 +568,34 @@ export interface ReflectionHost {
   /**
    * Check whether the given node actually represents a class.
    */
-  isClass(node: ts.Node): node is ts.NamedDeclaration;
+  isClass(node: ts.Node): node is ClassDeclaration;
 
   /**
-   * Determines whether the given declaration has a base class.
+   * Determines whether the given declaration, which should be a class, has a base class.
+   *
+   * @param clazz a `ClassDeclaration` representing the class over which to reflect.
    */
-  hasBaseClass(node: ts.Declaration): boolean;
+  hasBaseClass(clazz: ClassDeclaration): boolean;
+
+  /**
+   * Get an expression representing the base class (if any) of the given `clazz`.
+   *
+   * This expression is most commonly an Identifier, but is possible to inherit from a more dynamic
+   * expression.
+   *
+   * @param clazz the class whose base we want to get.
+   */
+  getBaseClassExpression(clazz: ClassDeclaration): ts.Expression|null;
 
   /**
    * Get the number of generic type parameters of a given class.
    *
+   * @param clazz a `ClassDeclaration` representing the class over which to reflect.
+   *
    * @returns the number of type parameters of the class, if known, or `null` if the declaration
    * is not a class or has an unknown number of type parameters.
    */
-  getGenericArityOfClass(clazz: ts.Declaration): number|null;
+  getGenericArityOfClass(clazz: ClassDeclaration): number|null;
 
   /**
    * Find the assigned value of a variable declaration.

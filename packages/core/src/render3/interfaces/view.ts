@@ -9,44 +9,42 @@
 import {InjectionToken} from '../../di/injection_token';
 import {Injector} from '../../di/injector';
 import {Type} from '../../interface/type';
-import {QueryList} from '../../linker';
 import {SchemaMetadata} from '../../metadata';
-import {Sanitizer} from '../../sanitization/security';
+import {Sanitizer} from '../../sanitization/sanitizer';
 
 import {LContainer} from './container';
 import {ComponentDef, ComponentTemplate, DirectiveDef, DirectiveDefList, HostBindingsFunction, PipeDef, PipeDefList, ViewQueriesFunction} from './definition';
 import {I18nUpdateOpCodes, TI18n} from './i18n';
-import {TElementNode, TNode, TViewNode} from './node';
+import {TAttributes, TElementNode, TNode, TViewNode} from './node';
 import {PlayerHandler} from './player';
-import {LQueries} from './query';
+import {LQueries, TQueries} from './query';
 import {RElement, Renderer3, RendererFactory3} from './renderer';
-import {StylingContext} from './styling';
 
 
 
 // Below are constants for LView indices to help us look up LView members
 // without having to remember the specific indices.
 // Uglify will inline these when minifying so there shouldn't be a cost.
-export const TVIEW = 0;
-export const FLAGS = 1;
-export const PARENT = 2;
-export const NEXT = 3;
-export const QUERIES = 4;
-export const HOST = 5;
+export const HOST = 0;
+export const TVIEW = 1;
+export const FLAGS = 2;
+export const PARENT = 3;
+export const NEXT = 4;
+export const QUERIES = 5;
 export const T_HOST = 6;
-export const BINDING_INDEX = 7;
-export const CLEANUP = 8;
-export const CONTEXT = 9;
-export const INJECTOR = 10;
-export const RENDERER_FACTORY = 11;
-export const RENDERER = 12;
-export const SANITIZER = 13;
-export const CHILD_HEAD = 14;
-export const CHILD_TAIL = 15;
-export const CONTENT_QUERIES = 16;
-export const DECLARATION_VIEW = 17;
+export const CLEANUP = 7;
+export const CONTEXT = 8;
+export const INJECTOR = 9;
+export const RENDERER_FACTORY = 10;
+export const RENDERER = 11;
+export const SANITIZER = 12;
+export const CHILD_HEAD = 13;
+export const CHILD_TAIL = 14;
+export const DECLARATION_VIEW = 15;
+export const DECLARATION_LCONTAINER = 16;
+export const PREORDER_HOOK_FLAGS = 17;
 /** Size of LView's header. Necessary to adjust for it when setting slots.  */
-export const HEADER_OFFSET = 19;
+export const HEADER_OFFSET = 18;
 
 
 // This interface replaces the real LView interface if it is an arg or a
@@ -68,6 +66,12 @@ export interface OpaqueViewState {
  * don't have to edit the data array based on which views are present.
  */
 export interface LView extends Array<any> {
+  /**
+   * The host node for this LView instance, if this is a component view.
+   * If this is an embedded view, HOST will be null.
+   */
+  [HOST]: RElement|null;
+
   /**
    * The static data for this view. We need a reference to this so we can easily walk up the
    * node tree in DI and get the TView.data array associated with a node (where the
@@ -104,13 +108,6 @@ export interface LView extends Array<any> {
   [QUERIES]: LQueries|null;
 
   /**
-   * The host node for this LView instance, if this is a component view.
-   *
-   * If this is an embedded view, HOST will be null.
-   */
-  [HOST]: RElement|StylingContext|null;
-
-  /**
    * Pointer to the `TViewNode` or `TElementNode` which represents the root of the view.
    *
    * If `TViewNode`, this is an embedded view of a container. We need this to be able to
@@ -121,15 +118,6 @@ export interface LView extends Array<any> {
    * If null, this is the root view of an application (root component is in this view).
    */
   [T_HOST]: TViewNode|TElementNode|null;
-
-  /**
-   * The binding index we should access next.
-   *
-   * This is stored so that bindings can continue where they left off
-   * if a view is left midway through processing bindings (e.g. if there is
-   * a setter that creates an embedded view, like in ngIf).
-   */
-  [BINDING_INDEX]: number;
 
   /**
    * When a view is destroyed, listeners need to be released and outputs need to be
@@ -181,13 +169,6 @@ export interface LView extends Array<any> {
   [CHILD_TAIL]: LView|LContainer|null;
 
   /**
-   * Stores QueryLists associated with content queries of a directive. This data structure is
-   * filled-in as part of a directive creation process and is later used to retrieve a QueryList to
-   * be refreshed.
-   */
-  [CONTENT_QUERIES]: QueryList<any>[]|null;
-
-  /**
    * View where this view's template was declared.
    *
    * Only applicable for dynamically created views. Will be null for inline/component views.
@@ -212,6 +193,21 @@ export interface LView extends Array<any> {
    * context.
    */
   [DECLARATION_VIEW]: LView|null;
+
+  /**
+   * A declaration point of embedded views (ones instantiated based on the content of a
+   * <ng-template>), null for other types of views.
+   *
+   * We need to track all embedded views created from a given declaration point so we can prepare
+   * query matches in a proper order (query matches are ordered based on their declaration point and
+   * _not_ the insertion point).
+   */
+  [DECLARATION_LCONTAINER]: LContainer|null;
+
+  /**
+   * More flags for this view. See PreOrderHookFlags for more info.
+   */
+  [PREORDER_HOOK_FLAGS]: PreOrderHookFlags;
 }
 
 /** Flags associated with an LView (saved in LView[FLAGS]) */
@@ -293,6 +289,20 @@ export const enum InitPhaseState {
   InitPhaseCompleted = 0b11,
 }
 
+/** More flags associated with an LView (saved in LView[PREORDER_HOOK_FLAGS]) */
+export const enum PreOrderHookFlags {
+  /** The index of the next pre-order hook to be called in the hooks array, on the first 16
+     bits */
+  IndexOfTheNextPreOrderHookMaskMask = 0b01111111111111111,
+
+  /**
+   * The number of init hooks that have already been called, on the last 16 bits
+   */
+  NumberOfInitHooksCalledIncrementer = 0b010000000000000000,
+  NumberOfInitHooksCalledShift = 16,
+  NumberOfInitHooksCalledMask = 0b11111111111111110000000000000000,
+}
+
 /**
  * Set of instructions used to process host bindings efficiently.
  *
@@ -304,7 +314,7 @@ export interface ExpandoInstructions extends Array<number|HostBindingsFunction<a
  * The static data for an LView (shared between all templates of a
  * given type).
  *
- * Stored on the template function as ngPrivateData.
+ * Stored on the `ComponentDef.tView`.
  */
 export interface TView {
   /**
@@ -334,7 +344,7 @@ export interface TView {
   viewQuery: ViewQueriesFunction<{}>|null;
 
   /**
-   * Pointer to the `TNode` that represents the root of the view.
+   * Pointer to the host `TNode` (not part of this TView).
    *
    * If this is a `TViewNode` for an `LViewNode`, this is an embedded view of a container.
    * We need this pointer to be able to efficiently find this node when inserting the view
@@ -361,13 +371,15 @@ export interface TView {
    * starts to store bindings only. Saving this value ensures that we
    * will begin reading bindings at the correct point in the array when
    * we are in update mode.
+   *
+   * -1 means that it has not been initialized.
    */
   bindingStartIndex: number;
 
   /**
    * The index where the "expando" section of `LView` begins. The expando
    * section contains injectors, directive instances, and host binding values.
-   * Unlike the "consts" and "vars" sections of `LView`, the length of this
+   * Unlike the "decls" and "vars" sections of `LView`, the length of this
    * section cannot be calculated at compile-time because directives are matched
    * at runtime to preserve locality.
    *
@@ -391,17 +403,6 @@ export interface TView {
    * refresh after creation mode to collect static query results.
    */
   staticContentQueries: boolean;
-
-  /**
-   * The index where the viewQueries section of `LView` begins. This section contains
-   * view queries defined for a component/directive.
-   *
-   * We store this start index so we know where the list of view queries starts.
-   * This is required when we invoke view queries at runtime. We invoke queries one by one and
-   * increment query index after each iteration. This information helps us to reset index back to
-   * the beginning of view query list before we invoke view queries again.
-   */
-  viewQueryStartIndex: number;
 
   /**
    * A reference to the first child node located in the view.
@@ -435,21 +436,21 @@ export interface TView {
   pipeRegistry: PipeDefList|null;
 
   /**
-   * Array of ngOnInit and ngDoCheck hooks that should be executed for this view in
+   * Array of ngOnInit, ngOnChanges and ngDoCheck hooks that should be executed for this view in
    * creation mode.
    *
    * Even indices: Directive index
    * Odd indices: Hook function
    */
-  initHooks: HookData|null;
+  preOrderHooks: HookData|null;
 
   /**
-   * Array of ngDoCheck hooks that should be executed for this view in update mode.
+   * Array of ngOnChanges and ngDoCheck hooks that should be executed for this view in update mode.
    *
    * Even indices: Directive index
    * Odd indices: Hook function
    */
-  checkHooks: HookData|null;
+  preOrderCheckHooks: HookData|null;
 
   /**
    * Array of ngAfterContentInit and ngAfterContentChecked hooks that should be executed
@@ -516,11 +517,6 @@ export interface TView {
    *         `useCaptureOrIndx >= 0` `removeListener = LView[CLEANUP][useCaptureOrIndx]`
    *         `useCaptureOrIndx <  0` `subscription = LView[CLEANUP][-useCaptureOrIndx]`
    *
-   * If it's a renderer2 style listener or ViewRef destroy hook being stored:
-   * 1st index is: index of the cleanup function in LView.cleanupInstances[]
-   * 2nd index is: `null`
-   *               `lView[CLEANUP][tView.cleanup[i+0]]()`
-   *
    * If it's an output subscription or query list destroy hook:
    * 1st index is: output unsubscribe function / query list destroy function
    * 2nd index is: index of function context in LView.cleanupInstances[]
@@ -537,7 +533,19 @@ export interface TView {
   components: number[]|null;
 
   /**
-   * A list of indices for child directives that have content queries.
+   * A collection of queries tracked in a given view.
+   */
+  queries: TQueries|null;
+
+  /**
+   * An array of indices pointing to directives with content queries alongside with the
+   * corresponding
+   * query index. Each entry in this array is a tuple of:
+   * - index of the first content query index declared by a given directive;
+   * - index of a directive.
+   *
+   * We are storing those indexes so we can refresh content queries as part of a view refresh
+   * process.
    */
   contentQueries: number[]|null;
 
@@ -545,6 +553,12 @@ export interface TView {
    * Set of schemas that declare elements to be allowed inside the view.
    */
   schemas: SchemaMetadata[]|null;
+
+  /**
+   * Array of attributes for all of the elements in the view. Used
+   * for directive matching and attribute bindings.
+   */
+  consts: TAttributes[]|null;
 }
 
 export const enum RootContextFlags {Empty = 0b00, DetectChanges = 0b01, FlushPlayers = 0b10}
@@ -588,8 +602,14 @@ export interface RootContext {
 /**
  * Array of hooks that should be executed for a view and their directive indices.
  *
- * Even indices: Directive index
- * Odd indices: Hook function
+ * For each node of the view, the following data is stored:
+ * 1) Node index (optional)
+ * 2) A series of number/function pairs where:
+ *  - even indices are directive indices
+ *  - odd indices are hook functions
+ *
+ * Special cases:
+ *  - a negative directive index flags an init hook (ngOnInit, ngAfterContentInit, ngAfterViewInit)
  */
 export type HookData = (number | (() => void))[];
 

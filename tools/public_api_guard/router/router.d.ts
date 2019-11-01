@@ -101,6 +101,9 @@ export declare class DefaultUrlSerializer implements UrlSerializer {
     serialize(tree: UrlTree): string;
 }
 
+/** @deprecated */
+export declare type DeprecatedLoadChildren = string;
+
 export declare type DetachedRouteHandle = {};
 
 export declare type Event = RouterEvent | RouteConfigLoadStart | RouteConfigLoadEnd | ChildActivationStart | ChildActivationEnd | ActivationStart | ActivationEnd | Scroll;
@@ -145,9 +148,12 @@ export declare class GuardsCheckStart extends RouterEvent {
     toString(): string;
 }
 
-export declare type LoadChildren = string | LoadChildrenCallback;
+/** @deprecated */
+export declare type InitialNavigation = true | false | 'enabled' | 'disabled' | 'legacy_enabled' | 'legacy_disabled';
 
-export declare type LoadChildrenCallback = () => Type<any> | NgModuleFactory<any> | Promise<Type<any>> | Observable<Type<any>>;
+export declare type LoadChildren = LoadChildrenCallback | DeprecatedLoadChildren;
+
+export declare type LoadChildrenCallback = () => Type<any> | NgModuleFactory<any> | Observable<Type<any>> | Promise<NgModuleFactory<any> | Type<any> | any>;
 
 export declare type Navigation = {
     id: number;
@@ -251,6 +257,8 @@ export declare abstract class PreloadingStrategy {
 export declare const PRIMARY_OUTLET = "primary";
 
 export declare function provideRoutes(routes: Routes): any;
+
+export declare type QueryParamsHandling = 'merge' | 'preserve' | '';
 
 export interface Resolve<T> {
     resolve(route: ActivatedRouteSnapshot, state: RouterStateSnapshot): Observable<T> | Promise<T> | T;

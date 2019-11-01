@@ -6,19 +6,23 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Expression, LiteralExpr, R3DependencyMetadata, R3InjectableMetadata, R3ResolvedDependencyType, Statement, WrappedNodeExpr, compileInjectable as compileIvyInjectable} from '@angular/compiler';
+import {Expression, Identifiers, LiteralExpr, R3DependencyMetadata, R3FactoryTarget, R3InjectableMetadata, R3ResolvedDependencyType, Statement, WrappedNodeExpr, compileInjectable as compileIvyInjectable} from '@angular/compiler';
 import * as ts from 'typescript';
 
 import {ErrorCode, FatalDiagnosticError} from '../../diagnostics';
-import {Decorator, ReflectionHost, reflectObjectLiteral} from '../../reflection';
+import {DefaultImportRecorder} from '../../imports';
+import {ClassDeclaration, Decorator, ReflectionHost, reflectObjectLiteral} from '../../reflection';
 import {AnalysisOutput, CompileResult, DecoratorHandler, DetectResult, HandlerPrecedence} from '../../transform';
 
+import {compileNgFactoryDefField} from './factory';
 import {generateSetClassMetadataCall} from './metadata';
-import {getConstructorDependencies, getValidConstructorDependencies, isAngularCore, validateConstructorDependencies} from './util';
+import {findAngularDecorator, getConstructorDependencies, getValidConstructorDependencies, isAngularCore, unwrapConstructorDependencies, unwrapForwardRef, validateConstructorDependencies} from './util';
 
 export interface InjectableHandlerData {
   meta: R3InjectableMetadata;
   metadataStmt: Statement|null;
+  ctorDeps: R3DependencyMetadata[]|'invalid'|null;
+  needsFactory: boolean;
 }
 
 /**
@@ -27,17 +31,16 @@ export interface InjectableHandlerData {
 export class InjectableDecoratorHandler implements
     DecoratorHandler<InjectableHandlerData, Decorator> {
   constructor(
-      private reflector: ReflectionHost, private isCore: boolean, private strictCtorDeps: boolean) {
-  }
+      private reflector: ReflectionHost, private defaultImportRecorder: DefaultImportRecorder,
+      private isCore: boolean, private strictCtorDeps: boolean) {}
 
   readonly precedence = HandlerPrecedence.SHARED;
 
-  detect(node: ts.Declaration, decorators: Decorator[]|null): DetectResult<Decorator>|undefined {
+  detect(node: ClassDeclaration, decorators: Decorator[]|null): DetectResult<Decorator>|undefined {
     if (!decorators) {
       return undefined;
     }
-    const decorator = decorators.find(
-        decorator => decorator.name === 'Injectable' && (this.isCore || isAngularCore(decorator)));
+    const decorator = findAngularDecorator(decorators, 'Injectable', this.isCore);
     if (decorator !== undefined) {
       return {
         trigger: decorator.node,
@@ -48,97 +51,83 @@ export class InjectableDecoratorHandler implements
     }
   }
 
-  analyze(node: ts.ClassDeclaration, decorator: Decorator): AnalysisOutput<InjectableHandlerData> {
+  analyze(node: ClassDeclaration, decorator: Decorator): AnalysisOutput<InjectableHandlerData> {
+    const meta = extractInjectableMetadata(node, decorator, this.reflector);
+    const decorators = this.reflector.getDecoratorsOfDeclaration(node);
+
     return {
       analysis: {
-        meta: extractInjectableMetadata(
-            node, decorator, this.reflector, this.isCore, this.strictCtorDeps),
-        metadataStmt: generateSetClassMetadataCall(node, this.reflector, this.isCore),
+        meta,
+        ctorDeps: extractInjectableCtorDeps(
+            node, meta, decorator, this.reflector, this.defaultImportRecorder, this.isCore,
+            this.strictCtorDeps),
+        metadataStmt: generateSetClassMetadataCall(
+            node, this.reflector, this.defaultImportRecorder, this.isCore),
+        // Avoid generating multiple factories if a class has
+        // more Angular decorators, apart from Injectable.
+        needsFactory: !decorators ||
+            decorators.every(current => !isAngularCore(current) || current.name === 'Injectable')
       },
     };
   }
 
-  compile(node: ts.ClassDeclaration, analysis: InjectableHandlerData): CompileResult {
+  compile(node: ClassDeclaration, analysis: InjectableHandlerData): CompileResult[] {
     const res = compileIvyInjectable(analysis.meta);
     const statements = res.statements;
-    if (analysis.metadataStmt !== null) {
-      statements.push(analysis.metadataStmt);
+    const results: CompileResult[] = [];
+
+    if (analysis.needsFactory) {
+      const meta = analysis.meta;
+      const factoryRes = compileNgFactoryDefField({
+        name: meta.name,
+        type: meta.type,
+        typeArgumentCount: meta.typeArgumentCount,
+        deps: analysis.ctorDeps,
+        injectFn: Identifiers.inject,
+        target: R3FactoryTarget.Injectable,
+      });
+      if (analysis.metadataStmt !== null) {
+        factoryRes.statements.push(analysis.metadataStmt);
+      }
+      results.push(factoryRes);
     }
-    return {
-      name: 'ngInjectableDef',
+
+    results.push({
+      name: 'ɵprov',
       initializer: res.expression, statements,
       type: res.type,
-    };
+    });
+
+    return results;
   }
 }
 
 /**
- * Read metadata from the `@Injectable` decorator and produce the `IvyInjectableMetadata`, the input
+ * Read metadata from the `@Injectable` decorator and produce the `IvyInjectableMetadata`, the
+ * input
  * metadata needed to run `compileIvyInjectable`.
  *
  * A `null` return value indicates this is @Injectable has invalid data.
  */
 function extractInjectableMetadata(
-    clazz: ts.ClassDeclaration, decorator: Decorator, reflector: ReflectionHost, isCore: boolean,
-    strictCtorDeps: boolean): R3InjectableMetadata {
-  if (clazz.name === undefined) {
-    throw new FatalDiagnosticError(
-        ErrorCode.DECORATOR_ON_ANONYMOUS_CLASS, decorator.node, `@Injectable on anonymous class`);
-  }
+    clazz: ClassDeclaration, decorator: Decorator,
+    reflector: ReflectionHost): R3InjectableMetadata {
   const name = clazz.name.text;
   const type = new WrappedNodeExpr(clazz.name);
   const typeArgumentCount = reflector.getGenericArityOfClass(clazz) || 0;
   if (decorator.args === null) {
     throw new FatalDiagnosticError(
-        ErrorCode.DECORATOR_NOT_CALLED, decorator.node, '@Injectable must be called');
+        ErrorCode.DECORATOR_NOT_CALLED, Decorator.nodeForError(decorator),
+        '@Injectable must be called');
   }
   if (decorator.args.length === 0) {
-    // Ideally, using @Injectable() would have the same effect as using @Injectable({...}), and be
-    // subject to the same validation. However, existing Angular code abuses @Injectable, applying
-    // it to things like abstract classes with constructors that were never meant for use with
-    // Angular's DI.
-    //
-    // To deal with this, @Injectable() without an argument is more lenient, and if the constructor
-    // signature does not work for DI then an ngInjectableDef that throws.
-    let ctorDeps: R3DependencyMetadata[]|'invalid'|null = null;
-    if (strictCtorDeps) {
-      ctorDeps = getValidConstructorDependencies(clazz, reflector, isCore);
-    } else {
-      const possibleCtorDeps = getConstructorDependencies(clazz, reflector, isCore);
-      if (possibleCtorDeps !== null) {
-        if (possibleCtorDeps.deps !== null) {
-          // This use of @Injectable has valid constructor dependencies.
-          ctorDeps = possibleCtorDeps.deps;
-        } else {
-          // This use of @Injectable is technically invalid. Generate a factory function which
-          // throws
-          // an error.
-          // TODO(alxhub): log warnings for the bad use of @Injectable.
-          ctorDeps = 'invalid';
-        }
-      }
-    }
     return {
       name,
       type,
       typeArgumentCount,
-      providedIn: new LiteralExpr(null), ctorDeps,
+      providedIn: new LiteralExpr(null),
     };
   } else if (decorator.args.length === 1) {
-    const rawCtorDeps = getConstructorDependencies(clazz, reflector, isCore);
-    let ctorDeps: R3DependencyMetadata[]|'invalid'|null = null;
-
-    // rawCtorDeps will be null if the class has no constructor.
-    if (rawCtorDeps !== null) {
-      if (rawCtorDeps.deps !== null) {
-        // A constructor existed and had valid dependencies.
-        ctorDeps = rawCtorDeps.deps;
-      } else {
-        // A constructor existed but had invalid dependencies.
-        ctorDeps = 'invalid';
-      }
-    }
-
     const metaNode = decorator.args[0];
     // Firstly make sure the decorator argument is an inline literal - if not, it's illegal to
     // transport references from one location to another. This is the problem that lowering
@@ -170,27 +159,25 @@ function extractInjectableMetadata(
         name,
         type,
         typeArgumentCount,
-        ctorDeps,
         providedIn,
-        useValue: new WrappedNodeExpr(meta.get('useValue') !),
+        useValue: new WrappedNodeExpr(unwrapForwardRef(meta.get('useValue') !, reflector)),
       };
     } else if (meta.has('useExisting')) {
       return {
         name,
         type,
         typeArgumentCount,
-        ctorDeps,
         providedIn,
-        useExisting: new WrappedNodeExpr(meta.get('useExisting') !),
+        useExisting: new WrappedNodeExpr(unwrapForwardRef(meta.get('useExisting') !, reflector)),
       };
     } else if (meta.has('useClass')) {
       return {
         name,
         type,
         typeArgumentCount,
-        ctorDeps,
         providedIn,
-        useClass: new WrappedNodeExpr(meta.get('useClass') !), userDeps,
+        useClass: new WrappedNodeExpr(unwrapForwardRef(meta.get('useClass') !, reflector)),
+        userDeps,
       };
     } else if (meta.has('useFactory')) {
       // useFactory is special - the 'deps' property must be analyzed.
@@ -200,14 +187,10 @@ function extractInjectableMetadata(
         type,
         typeArgumentCount,
         providedIn,
-        useFactory: factory, ctorDeps, userDeps,
+        useFactory: factory, userDeps,
       };
     } else {
-      if (strictCtorDeps) {
-        // Since use* was not provided, validate the deps according to strictCtorDeps.
-        validateConstructorDependencies(clazz, rawCtorDeps);
-      }
-      return {name, type, typeArgumentCount, providedIn, ctorDeps};
+      return {name, type, typeArgumentCount, providedIn};
     }
   } else {
     throw new FatalDiagnosticError(
@@ -215,7 +198,49 @@ function extractInjectableMetadata(
   }
 }
 
+function extractInjectableCtorDeps(
+    clazz: ClassDeclaration, meta: R3InjectableMetadata, decorator: Decorator,
+    reflector: ReflectionHost, defaultImportRecorder: DefaultImportRecorder, isCore: boolean,
+    strictCtorDeps: boolean) {
+  if (decorator.args === null) {
+    throw new FatalDiagnosticError(
+        ErrorCode.DECORATOR_NOT_CALLED, Decorator.nodeForError(decorator),
+        '@Injectable must be called');
+  }
 
+  let ctorDeps: R3DependencyMetadata[]|'invalid'|null = null;
+
+  if (decorator.args.length === 0) {
+    // Ideally, using @Injectable() would have the same effect as using @Injectable({...}), and be
+    // subject to the same validation. However, existing Angular code abuses @Injectable, applying
+    // it to things like abstract classes with constructors that were never meant for use with
+    // Angular's DI.
+    //
+    // To deal with this, @Injectable() without an argument is more lenient, and if the
+    // constructor signature does not work for DI then a factory definition (ɵfac) that throws is
+    // generated.
+    if (strictCtorDeps) {
+      ctorDeps = getValidConstructorDependencies(clazz, reflector, defaultImportRecorder, isCore);
+    } else {
+      ctorDeps = unwrapConstructorDependencies(
+          getConstructorDependencies(clazz, reflector, defaultImportRecorder, isCore));
+    }
+
+    return ctorDeps;
+  } else if (decorator.args.length === 1) {
+    const rawCtorDeps = getConstructorDependencies(clazz, reflector, defaultImportRecorder, isCore);
+
+    if (strictCtorDeps && meta.useValue === undefined && meta.useExisting === undefined &&
+        meta.useClass === undefined && meta.useFactory === undefined) {
+      // Since use* was not provided, validate the deps according to strictCtorDeps.
+      ctorDeps = validateConstructorDependencies(clazz, rawCtorDeps);
+    } else {
+      ctorDeps = unwrapConstructorDependencies(rawCtorDeps);
+    }
+  }
+
+  return ctorDeps;
+}
 
 function getDep(dep: ts.Expression, reflector: ReflectionHost): R3DependencyMetadata {
   const meta: R3DependencyMetadata = {

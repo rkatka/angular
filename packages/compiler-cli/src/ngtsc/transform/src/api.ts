@@ -10,7 +10,8 @@ import {ConstantPool, Expression, Statement, Type} from '@angular/compiler';
 import * as ts from 'typescript';
 
 import {Reexport} from '../../imports';
-import {Decorator} from '../../reflection';
+import {IndexingContext} from '../../indexer';
+import {ClassDeclaration, Decorator} from '../../reflection';
 import {TypeCheckContext} from '../../typecheck';
 
 export enum HandlerPrecedence {
@@ -36,6 +37,27 @@ export enum HandlerPrecedence {
   WEAK,
 }
 
+/**
+ * A set of options which can be passed to a `DecoratorHandler` by a consumer, to tailor the output
+ * of compilation beyond the decorators themselves.
+ */
+export enum HandlerFlags {
+  /**
+   * No flags set.
+   */
+  NONE = 0x0,
+
+  /**
+   * Indicates that this decorator is fully inherited from its parent at runtime. In addition to
+   * normally inherited aspects such as inputs and queries, full inheritance applies to every aspect
+   * of the component or directive, such as the template function itself.
+   *
+   * Its primary effect is to cause the `CopyDefinitionFeature` to be applied to the definition
+   * being compiled. See that class for more information.
+   */
+  FULL_INHERITANCE = 0x00000001,
+}
+
 
 /**
  * Provides the interface between a decorator compiler from @angular/compiler and the Typescript
@@ -58,7 +80,7 @@ export interface DecoratorHandler<A, M> {
    * Scan a set of reflected decorators and determine if this handler is responsible for compilation
    * of one of them.
    */
-  detect(node: ts.Declaration, decorators: Decorator[]|null): DetectResult<M>|undefined;
+  detect(node: ClassDeclaration, decorators: Decorator[]|null): DetectResult<M>|undefined;
 
 
   /**
@@ -67,14 +89,21 @@ export interface DecoratorHandler<A, M> {
    * `preAnalyze` is optional and is not guaranteed to be called through all compilation flows. It
    * will only be called if asynchronicity is supported in the CompilerHost.
    */
-  preanalyze?(node: ts.Declaration, metadata: M): Promise<void>|undefined;
+  preanalyze?(node: ClassDeclaration, metadata: M): Promise<void>|undefined;
 
   /**
    * Perform analysis on the decorator/class combination, producing instructions for compilation
    * if successful, or an array of diagnostic messages if the analysis fails or the decorator
    * isn't valid.
    */
-  analyze(node: ts.Declaration, metadata: M): AnalysisOutput<A>;
+  analyze(node: ClassDeclaration, metadata: M, handlerFlags?: HandlerFlags): AnalysisOutput<A>;
+
+  /**
+   * Registers information about the decorator for the indexing phase in a
+   * `IndexingContext`, which stores information about components discovered in the
+   * program.
+   */
+  index?(context: IndexingContext, node: ClassDeclaration, metadata: A): void;
 
   /**
    * Perform resolution on the given decorator along with the result of analysis.
@@ -83,15 +112,15 @@ export interface DecoratorHandler<A, M> {
    * `DecoratorHandler` a chance to leverage information from the whole compilation unit to enhance
    * the `analysis` before the emit phase.
    */
-  resolve?(node: ts.Declaration, analysis: A): ResolveResult;
+  resolve?(node: ClassDeclaration, analysis: A): ResolveResult;
 
-  typeCheck?(ctx: TypeCheckContext, node: ts.Declaration, metadata: A): void;
+  typeCheck?(ctx: TypeCheckContext, node: ClassDeclaration, metadata: A): void;
 
   /**
    * Generate a description of the field which should be added to the class, including any
    * initialization code to be generated.
    */
-  compile(node: ts.Declaration, analysis: A, constantPool: ConstantPool): CompileResult
+  compile(node: ClassDeclaration, analysis: A, constantPool: ConstantPool): CompileResult
       |CompileResult[];
 }
 
@@ -123,4 +152,7 @@ export interface CompileResult {
   type: Type;
 }
 
-export interface ResolveResult { reexports?: Reexport[]; }
+export interface ResolveResult {
+  reexports?: Reexport[];
+  diagnostics?: ts.Diagnostic[];
+}

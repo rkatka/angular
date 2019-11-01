@@ -27,30 +27,6 @@ export declare class DecimalPipe implements PipeTransform {
     transform(value: any, digitsInfo?: string, locale?: string): string | null;
 }
 
-export declare class DeprecatedCurrencyPipe implements PipeTransform {
-    constructor(_locale: string);
-    transform(value: any, currencyCode?: string, symbolDisplay?: boolean, digits?: string): string | null;
-}
-
-export declare class DeprecatedDatePipe implements PipeTransform {
-    constructor(_locale: string);
-    transform(value: any, pattern?: string): string | null;
-}
-
-export declare class DeprecatedDecimalPipe implements PipeTransform {
-    constructor(_locale: string);
-    transform(value: any, digits?: string): string | null;
-}
-
-/** @deprecated */
-export declare class DeprecatedI18NPipesModule {
-}
-
-export declare class DeprecatedPercentPipe implements PipeTransform {
-    constructor(_locale: string);
-    transform(value: any, digits?: string): string | null;
-}
-
 export declare const DOCUMENT: InjectionToken<Document>;
 
 export declare function formatCurrency(value: number, locale: string, currency: string, currencyCode?: string, digitsInfo?: string): string;
@@ -103,7 +79,7 @@ export declare function getLocaleNumberFormat(locale: string, type: NumberFormat
 
 export declare function getLocaleNumberSymbol(locale: string, symbol: NumberSymbol): string;
 
-export declare function getLocalePluralCase(locale: string): (value: number) => Plural;
+export declare const getLocalePluralCase: (locale: string) => ((value: number) => Plural);
 
 export declare function getLocaleTimeFormat(locale: string, width: FormatWidth): string;
 
@@ -166,19 +142,21 @@ export declare class KeyValuePipe implements PipeTransform {
 }
 
 export declare class Location {
-    constructor(platformStrategy: LocationStrategy);
+    constructor(platformStrategy: LocationStrategy, platformLocation: PlatformLocation);
     back(): void;
     forward(): void;
+    getState(): unknown;
     go(path: string, query?: string, state?: any): void;
     isCurrentPathEqualTo(path: string, query?: string): boolean;
     normalize(url: string): string;
+    onUrlChange(fn: (url: string, state: unknown) => void): void;
     path(includeHash?: boolean): string;
     prepareExternalUrl(url: string): string;
     replaceState(path: string, query?: string, state?: any): void;
     subscribe(onNext: (value: PopStateEvent) => void, onThrow?: ((exception: any) => void) | null, onReturn?: (() => void) | null): SubscriptionLike;
-    static joinWithSlash(start: string, end: string): string;
-    static normalizeQueryParams(params: string): string;
-    static stripTrailingSlash(url: string): string;
+    static joinWithSlash: (start: string, end: string) => string;
+    static normalizeQueryParams: (params: string) => string;
+    static stripTrailingSlash: (url: string) => string;
 }
 
 export declare const LOCATION_INITIALIZED: InjectionToken<Promise<any>>;
@@ -222,7 +200,8 @@ export declare class NgClassBase {
     getValue(): {
         [key: string]: any;
     } | null;
-    static ngDirectiveDef: any;
+    static ɵdir: any;
+    static ɵfac: any;
 }
 
 export declare class NgComponentOutlet implements OnChanges, OnDestroy {
@@ -236,7 +215,7 @@ export declare class NgComponentOutlet implements OnChanges, OnDestroy {
 }
 
 export declare class NgForOf<T> implements DoCheck {
-    ngForOf: NgIterable<T>;
+    ngForOf: NgIterable<T> | undefined | null;
     ngForTemplate: TemplateRef<NgForOfContext<T>>;
     ngForTrackBy: TrackByFunction<T>;
     constructor(_viewContainer: ViewContainerRef, _template: TemplateRef<NgForOfContext<T>>, _differs: IterableDiffers);
@@ -261,7 +240,7 @@ export declare class NgIf {
     ngIfElse: TemplateRef<NgIfContext> | null;
     ngIfThen: TemplateRef<NgIfContext> | null;
     constructor(_viewContainer: ViewContainerRef, templateRef: TemplateRef<NgIfContext>);
-    static ngTemplateGuard_ngIf<E>(dir: NgIf, expr: E): expr is NonNullable<E>;
+    static ngTemplateGuard_ngIf: 'binding';
 }
 
 export declare class NgIfContext {
@@ -270,10 +249,8 @@ export declare class NgIfContext {
 }
 
 export declare class NgLocaleLocalization extends NgLocalization {
-    /** @deprecated */ protected deprecatedPluralFn?: ((locale: string, value: string | number) => Plural) | null | undefined;
     protected locale: string;
-    constructor(locale: string,
-    /** @deprecated */ deprecatedPluralFn?: ((locale: string, value: string | number) => Plural) | null | undefined);
+    constructor(locale: string);
     getPluralCategory(value: any, locale?: string): string;
 }
 
@@ -306,7 +283,8 @@ export declare class NgStyleBase {
     getValue(): {
         [key: string]: any;
     } | null;
-    static ngDirectiveDef: any;
+    static ɵdir: any;
+    static ɵfac: any;
 }
 
 export declare class NgSwitch {
@@ -373,11 +351,16 @@ export declare class PercentPipe implements PipeTransform {
 
 export declare abstract class PlatformLocation {
     abstract readonly hash: string;
+    abstract readonly hostname: string;
+    abstract readonly href: string;
     abstract readonly pathname: string;
+    abstract readonly port: string;
+    abstract readonly protocol: string;
     abstract readonly search: string;
     abstract back(): void;
     abstract forward(): void;
     abstract getBaseHrefFromDOM(): string;
+    abstract getState(): unknown;
     abstract onHashChange(fn: LocationChangeListener): void;
     abstract onPopState(fn: LocationChangeListener): void;
     abstract pushState(state: any, title: string, url: string): void;
@@ -403,7 +386,10 @@ export interface PopStateEvent {
 export declare function registerLocaleData(data: any, localeId?: string | any, extraData?: any): void;
 
 export declare class SlicePipe implements PipeTransform {
-    transform(value: any, start: number, end?: number): any;
+    transform<T>(value: ReadonlyArray<T>, start: number, end?: number): Array<T>;
+    transform(value: string, start: number, end?: number): string;
+    transform(value: null, start: number, end?: number): null;
+    transform(value: undefined, start: number, end?: number): undefined;
 }
 
 export declare type Time = {
@@ -434,7 +420,7 @@ export declare abstract class ViewportScroller {
     abstract scrollToPosition(position: [number, number]): void;
     abstract setHistoryScrollRestoration(scrollRestoration: 'auto' | 'manual'): void;
     abstract setOffset(offset: [number, number] | (() => [number, number])): void;
-    static ngInjectableDef: never;
+    static ɵprov: never;
 }
 
 export declare enum WeekDay {

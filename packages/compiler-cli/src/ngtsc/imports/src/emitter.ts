@@ -5,14 +5,11 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-
-import {Expression, ExternalExpr, WrappedNodeExpr} from '@angular/compiler';
-import {ExternalReference} from '@angular/compiler/src/compiler';
+import {Expression, ExternalExpr, ExternalReference, WrappedNodeExpr} from '@angular/compiler';
 import * as ts from 'typescript';
-
-import {LogicalFileSystem, LogicalProjectPath} from '../../path';
-import {getSourceFile, isDeclaration, nodeNameForError} from '../../util/src/typescript';
-
+import {LogicalFileSystem, LogicalProjectPath, absoluteFrom} from '../../file_system';
+import {ReflectionHost} from '../../reflection';
+import {getSourceFile, getSourceFileOrNull, isDeclaration, nodeNameForError, resolveModuleName} from '../../util/src/typescript';
 import {findExportedNameOfNode} from './find_export';
 import {ImportMode, Reference} from './references';
 
@@ -54,8 +51,8 @@ export interface ReferenceEmitStrategy {
 /**
  * Generates `Expression`s which refer to `Reference`s in a given context.
  *
- * A `ReferenceEmitter` uses one or more `ReferenceEmitStrategy` implementations to produce a
- * an `Expression` which refers to a `Reference` in the context of a particular file.
+ * A `ReferenceEmitter` uses one or more `ReferenceEmitStrategy` implementations to produce an
+ * `Expression` which refers to a `Reference` in the context of a particular file.
  */
 export class ReferenceEmitter {
   constructor(private strategies: ReferenceEmitStrategy[]) {}
@@ -115,8 +112,9 @@ export class AbsoluteModuleStrategy implements ReferenceEmitStrategy {
   private moduleExportsCache = new Map<string, Map<ts.Declaration, string>|null>();
 
   constructor(
-      private program: ts.Program, private checker: ts.TypeChecker,
-      private options: ts.CompilerOptions, private host: ts.CompilerHost) {}
+      protected program: ts.Program, protected checker: ts.TypeChecker,
+      protected options: ts.CompilerOptions, protected host: ts.CompilerHost,
+      private reflectionHost: ReflectionHost) {}
 
   emit(ref: Reference<ts.Node>, context: ts.SourceFile, importMode: ImportMode): Expression|null {
     if (ref.bestGuessOwningModule === null) {
@@ -159,47 +157,32 @@ export class AbsoluteModuleStrategy implements ReferenceEmitStrategy {
     return this.moduleExportsCache.get(moduleName) !;
   }
 
-  private enumerateExportsOfModule(specifier: string, fromFile: string):
+  protected enumerateExportsOfModule(specifier: string, fromFile: string):
       Map<ts.Declaration, string>|null {
     // First, resolve the module specifier to its entry point, and get the ts.Symbol for it.
-    const resolved = ts.resolveModuleName(specifier, fromFile, this.options, this.host);
-    if (resolved.resolvedModule === undefined) {
+    const resolvedModule = resolveModuleName(specifier, fromFile, this.options, this.host);
+    if (resolvedModule === undefined) {
       return null;
     }
 
-    const entryPointFile = this.program.getSourceFile(resolved.resolvedModule.resolvedFileName);
-    if (entryPointFile === undefined) {
+    const entryPointFile =
+        getSourceFileOrNull(this.program, absoluteFrom(resolvedModule.resolvedFileName));
+    if (entryPointFile === null) {
       return null;
     }
 
-    const entryPointSymbol = this.checker.getSymbolAtLocation(entryPointFile);
-    if (entryPointSymbol === undefined) {
+    const exports = this.reflectionHost.getExportsOfModule(entryPointFile);
+    if (exports === null) {
       return null;
     }
-
-    // Next, build a Map of all the ts.Declarations exported via the specifier and their exported
-    // names.
     const exportMap = new Map<ts.Declaration, string>();
-
-    const exports = this.checker.getExportsOfModule(entryPointSymbol);
-    for (const expSymbol of exports) {
-      // Resolve export symbols to their actual declarations.
-      const declSymbol = expSymbol.flags & ts.SymbolFlags.Alias ?
-          this.checker.getAliasedSymbol(expSymbol) :
-          expSymbol;
-
-      // At this point the valueDeclaration of the symbol should be defined.
-      const decl = declSymbol.valueDeclaration;
-      if (decl === undefined) {
-        continue;
+    exports.forEach((declaration, name) => {
+      // It's okay to skip inline declarations, since by definition they're not target-able with a
+      // ts.Declaration anyway.
+      if (declaration.node !== null) {
+        exportMap.set(declaration.node, name);
       }
-
-      // Prefer importing the symbol via its declared name, but take any export of it otherwise.
-      if (declSymbol.name === expSymbol.name || !exportMap.has(decl)) {
-        exportMap.set(decl, expSymbol.name);
-      }
-    }
-
+    });
     return exportMap;
   }
 }
@@ -213,7 +196,7 @@ export class AbsoluteModuleStrategy implements ReferenceEmitStrategy {
  * Instead, `LogicalProjectPath`s are used.
  */
 export class LogicalProjectStrategy implements ReferenceEmitStrategy {
-  constructor(private checker: ts.TypeChecker, private logicalFs: LogicalFileSystem) {}
+  constructor(private reflector: ReflectionHost, private logicalFs: LogicalFileSystem) {}
 
   emit(ref: Reference<ts.Node>, context: ts.SourceFile): Expression|null {
     const destSf = getSourceFile(ref.node);
@@ -237,7 +220,7 @@ export class LogicalProjectStrategy implements ReferenceEmitStrategy {
       return null;
     }
 
-    const name = findExportedNameOfNode(ref.node, destSf, this.checker);
+    const name = findExportedNameOfNode(ref.node, destSf, this.reflector);
     if (name === null) {
       // The target declaration isn't exported from the file it's declared in. This is an issue!
       return null;
@@ -254,11 +237,11 @@ export class LogicalProjectStrategy implements ReferenceEmitStrategy {
  * A `ReferenceEmitStrategy` which uses a `FileToModuleHost` to generate absolute import references.
  */
 export class FileToModuleStrategy implements ReferenceEmitStrategy {
-  constructor(private checker: ts.TypeChecker, private fileToModuleHost: FileToModuleHost) {}
+  constructor(private reflector: ReflectionHost, private fileToModuleHost: FileToModuleHost) {}
 
   emit(ref: Reference<ts.Node>, context: ts.SourceFile): Expression|null {
     const destSf = getSourceFile(ref.node);
-    const name = findExportedNameOfNode(ref.node, destSf, this.checker);
+    const name = findExportedNameOfNode(ref.node, destSf, this.reflector);
     if (name === null) {
       return null;
     }

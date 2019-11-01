@@ -9,9 +9,11 @@
 import {assertDefined} from '../../util/assert';
 import {assertLView} from '../assert';
 import {TNodeType} from '../interfaces/node';
+import {isLContainer, isLView} from '../interfaces/type_checks';
 import {CONTEXT, DECLARATION_VIEW, FLAGS, LView, LViewFlags, PARENT, RootContext, T_HOST} from '../interfaces/view';
 
-import {isLContainer, isLView, readPatchedLView} from './view_utils';
+import {readPatchedLView} from './view_utils';
+
 
 
 /**
@@ -42,14 +44,19 @@ export function getRootView(componentOrLView: LView | {}): LView {
 }
 
 /**
- * Given a current view, finds the nearest component's host (LElement).
+ * Given an `LView`, find the closest declaration view which is not an embedded view.
+ *
+ * This method searches for the `LView` associated with the component which declared the `LView`.
+ *
+ * This function may return itself if the `LView` passed in is not an embedded `LView`. Otherwise
+ * it walks the declaration parents until it finds a component view (non-embedded-view.)
  *
  * @param lView LView for which we want a host element node
  * @returns The host node
  */
 export function findComponentView(lView: LView): LView {
   let rootTNode = lView[T_HOST];
-  while (rootTNode && rootTNode.type === TNodeType.View) {
+  while (rootTNode !== null && rootTNode.type === TNodeType.View) {
     ngDevMode && assertDefined(lView[DECLARATION_VIEW], 'lView[DECLARATION_VIEW]');
     lView = lView[DECLARATION_VIEW] !;
     rootTNode = lView[T_HOST];

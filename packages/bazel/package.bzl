@@ -24,23 +24,14 @@ def rules_angular_dev_dependencies():
     shorter.
     """
 
-    http_archive(
-        name = "org_brotli",
-        sha256 = "774b893a0700b0692a76e2e5b7e7610dbbe330ffbe3fe864b4b52ca718061d5a",
-        strip_prefix = "brotli-1.0.5",
-        url = "https://github.com/google/brotli/archive/v1.0.5.zip",
-    )
-
     # Needed for Remote Execution
+    # https://github.com/bazelbuild/bazel-toolchains/releases
     _maybe(
         http_archive,
         name = "bazel_toolchains",
-        sha256 = "ee854b5de299138c1f4a2edb5573d22b21d975acfc7aa938f36d30b49ef97498",
-        strip_prefix = "bazel-toolchains-37419a124bdb9af2fec5b99a973d359b6b899b61",
-        urls = [
-            "https://mirror.bazel.build/github.com/bazelbuild/bazel-toolchains/archive/37419a124bdb9af2fec5b99a973d359b6b899b61.tar.gz",
-            "https://github.com/bazelbuild/bazel-toolchains/archive/37419a124bdb9af2fec5b99a973d359b6b899b61.tar.gz",
-        ],
+        sha256 = "0b36eef8a66f39c8dbae88e522d5bbbef49d5e66e834a982402c79962281be10",
+        strip_prefix = "bazel-toolchains-1.0.1",
+        url = "https://github.com/bazelbuild/bazel-toolchains/archive/1.0.1.tar.gz",
     )
 
     #############################################
@@ -48,12 +39,14 @@ def rules_angular_dev_dependencies():
     #############################################
     http_archive(
         name = "io_bazel_rules_sass",
-        strip_prefix = "rules_sass-1.15.1",
-        url = "https://github.com/bazelbuild/rules_sass/archive/1.15.1.zip",
+        sha256 = "4f05239080175a3f4efa8982d2b7775892d656bb47e8cf56914d5f9441fb5ea6",
+        url = "https://github.com/bazelbuild/rules_sass/archive/86ca977cf2a8ed481859f83a286e164d07335116.zip",
+        strip_prefix = "rules_sass-86ca977cf2a8ed481859f83a286e164d07335116",
     )
 
     http_archive(
         name = "io_bazel_skydoc",
+        sha256 = "f88058b43112e9bdc7fdb0abbdc17c5653268708c01194a159641119195e45c6",
         strip_prefix = "skydoc-a9550cb3ca3939cbabe3b589c57b6f531937fa99",
         # TODO: switch to upstream when https://github.com/bazelbuild/skydoc/pull/103 is merged
         url = "https://github.com/alexeagle/skydoc/archive/a9550cb3ca3939cbabe3b589c57b6f531937fa99.zip",

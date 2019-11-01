@@ -17,7 +17,7 @@ import {makeParamDecorator} from '../util/decorators';
  */
 export interface InjectDecorator {
   /**
-   * A parameter decorator on a dependency parameter of a class constructor
+   * Parameter decorator on a dependency parameter of a class constructor
    * that specifies a custom provider of the dependency.
    *
    * Learn more in the ["Dependency Injection Guide"](guide/dependency-injection).
@@ -26,12 +26,11 @@ export interface InjectDecorator {
    * The following example shows a class constructor that specifies a
    * custom provider of a dependency using the parameter decorator.
    *
-   * {@example core/di/ts/metadata_spec.ts region='Inject'}
-   *
    * When `@Inject()` is not present, the injector uses the type annotation of the
    * parameter as the provider.
    *
-   * {@example core/di/ts/metadata_spec.ts region='InjectWithoutDecorator'}
+   * <code-example path="core/di/ts/metadata_spec.ts" region="InjectWithoutDecorator">
+   * </code-example>
    */
   (token: any): any;
   new (token: any): Inject;
@@ -65,7 +64,7 @@ export const Inject: InjectDecorator = makeParamDecorator('Inject', (token: any)
  */
 export interface OptionalDecorator {
   /**
-   * A parameter decorator to be used on constructor parameters,
+   * Parameter decorator to be used on constructor parameters,
    * which marks the parameter as being an optional dependency.
    * The DI framework provides null if the dependency is not found.
    *
@@ -78,7 +77,8 @@ export interface OptionalDecorator {
    *
    * The following code allows the possibility of a null result:
    *
-   * {@example core/di/ts/metadata_spec.ts region='Optional'}
+   * <code-example path="core/di/ts/metadata_spec.ts" region="Optional">
+   * </code-example>
    *
    */
   (): any;
@@ -107,7 +107,7 @@ export const Optional: OptionalDecorator = makeParamDecorator('Optional');
  */
 export interface SelfDecorator {
   /**
-   * A parameter decorator to be used on constructor parameters,
+   * Parameter decorator to be used on constructor parameters,
    * which tells the DI framework to start dependency resolution from the local injector.
    *
    * Resolution works upward through the injector hierarchy, so the children
@@ -119,7 +119,9 @@ export interface SelfDecorator {
    * by the local injector when instantiating the class itself, but not
    * when instantiating a child.
    *
-   * {@example core/di/ts/metadata_spec.ts region='Self'}
+   * <code-example path="core/di/ts/metadata_spec.ts" region="Self">
+   * </code-example>
+   *
    *
    * @see `SkipSelf`
    * @see `Optional`
@@ -152,7 +154,7 @@ export const Self: SelfDecorator = makeParamDecorator('Self');
  */
 export interface SkipSelfDecorator {
   /**
-   * A parameter decorator to be used on constructor parameters,
+   * Parameter decorator to be used on constructor parameters,
    * which tells the DI framework to start dependency resolution from the parent injector.
    * Resolution works upward through the injector hierarchy, so the local injector
    * is not checked for a provider.
@@ -162,7 +164,8 @@ export interface SkipSelfDecorator {
    * In the following example, the dependency can be resolved when
    * instantiating a child, but not when instantiating the class itself.
    *
-   * {@example core/di/ts/metadata_spec.ts region='SkipSelf'}
+   * <code-example path="core/di/ts/metadata_spec.ts" region="SkipSelf">
+   * </code-example>
    *
    * Learn more in the
    * [Dependency Injection guide](guide/dependency-injection-in-action#skip).
@@ -197,7 +200,7 @@ export const SkipSelf: SkipSelfDecorator = makeParamDecorator('SkipSelf');
  */
 export interface HostDecorator {
   /**
-   * A parameter decorator on a view-provider parameter of a class constructor
+   * Parameter decorator on a view-provider parameter of a class constructor
    * that tells the DI framework to resolve the view by checking injectors of child
    * elements, and stop when reaching the host element of the current component.
    *
@@ -208,7 +211,8 @@ export interface HostDecorator {
    *
    * The following shows use with the `@Optional` decorator, and allows for a null result.
    *
-   * {@example core/di/ts/metadata_spec.ts region='Host'}
+   * <code-example path="core/di/ts/metadata_spec.ts" region="Host">
+   * </code-example>
    */
   (): any;
   new (): Host;
@@ -237,12 +241,10 @@ export const Host: HostDecorator = makeParamDecorator('Host');
  */
 export interface AttributeDecorator {
   /**
-   * Specifies that a constant attribute value should be injected.
-   *
-   * The directive can inject constant string literals of host element attributes.
+   * Parameter decorator for a directive constructor that designates
+   * a host-element attribute whose value is injected as a constant string literal.
    *
    * @usageNotes
-   * ### Example
    *
    * Suppose we have an `<input>` element and want to know its `type`.
    *
@@ -250,7 +252,7 @@ export interface AttributeDecorator {
    * <input type="text">
    * ```
    *
-   * A decorator can inject string literal `text` like so:
+   * The following example uses the decorator to inject the string literal `text`.
    *
    * {@example core/ts/metadata/metadata.ts region='attributeMetadata'}
    *
@@ -258,20 +260,6 @@ export interface AttributeDecorator {
    *
    * {@example core/ts/metadata/metadata.ts region='attributeFactory'}
    *
-   * ### Example as ES5 annotation
-   *
-   * ```
-   * var MyComponent = function(title) {
-   *   ...
-   * };
-   *
-   * MyComponent.annotations = [
-   *   new ng.Component({...})
-   * ]
-   * MyComponent.parameters = [
-   *   [new ng.Attribute('title')]
-   * ]
-   * ```
    */
   (name: string): any;
   new (name: string): Attribute;
@@ -282,7 +270,12 @@ export interface AttributeDecorator {
  *
  * @publicApi
  */
-export interface Attribute { attributeName?: string; }
+export interface Attribute {
+  /**
+   * The name of the attribute whose value can be injected.
+   */
+  attributeName?: string;
+}
 
 /**
  * Attribute decorator and metadata.

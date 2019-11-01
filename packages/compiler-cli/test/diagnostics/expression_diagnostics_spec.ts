@@ -7,12 +7,10 @@
  */
 
 import {StaticSymbol} from '@angular/compiler';
-import {CompilerHost} from '@angular/compiler-cli';
 import {ReflectorHost} from '@angular/language-service/src/reflector_host';
 import * as ts from 'typescript';
 
-import {getExpressionDiagnostics, getTemplateExpressionDiagnostics} from '../../src/diagnostics/expression_diagnostics';
-import {CompilerOptions} from '../../src/transformers/api';
+import {getTemplateExpressionDiagnostics} from '../../src/diagnostics/expression_diagnostics';
 import {Directory} from '../mocks';
 
 import {DiagnosticContext, MockLanguageServiceHost, getDiagnosticTemplateInfo} from './mocks';
@@ -31,10 +29,7 @@ describe('expression diagnostics', () => {
     service = ts.createLanguageService(host, registry);
     const program = service.getProgram() !;
     const checker = program.getTypeChecker();
-    const options: CompilerOptions = Object.create(host.getCompilationSettings());
-    options.genDir = '/dist';
-    options.basePath = '/src';
-    const symbolResolverHost = new ReflectorHost(() => program !, host, options);
+    const symbolResolverHost = new ReflectorHost(() => program !, host);
     context = new DiagnosticContext(service, program !, checker, symbolResolverHost);
     type = context.getStaticSymbol('app/app.component.ts', 'AppComponent');
   });
@@ -44,7 +39,8 @@ describe('expression diagnostics', () => {
       if (typeof messageText == 'string') {
         return messageText;
       } else {
-        if (messageText.next) return messageText.messageText + messageToString(messageText.next);
+        if (messageText.next)
+          return messageText.messageText + messageText.next.map(messageToString);
         return messageText.messageText;
       }
     }
@@ -103,6 +99,9 @@ describe('expression diagnostics', () => {
      () => reject(
          '<div *ngIf="persson">{{person.name.first}}</div>',
          'Identifier \'persson\' is not defined'));
+  it('should reject *ngIf of misspelled identifier in PrefixNot node',
+     () =>
+         reject('<div *ngIf="people && !persson"></div>', 'Identifier \'persson\' is not defined'));
   it('should accept an *ngFor', () => accept(`
       <div *ngFor="let p of people">
         {{p.name.first}} {{p.name.last}}
@@ -132,6 +131,18 @@ describe('expression diagnostics', () => {
       </div>
     `,
                                                            'Identifier \'nume\' is not defined'));
+  it('should accept an async *ngIf', () => accept(`
+      <div *ngIf="promised_person | async as p">
+        {{p.name.first}} {{p.name.last}}
+      </div>
+    `));
+  it('should reject misspelled field in async *ngIf', () => reject(
+                                                          `
+      <div *ngIf="promised_person | async as p">
+        {{p.name.first}} {{p.nume.last}}
+      </div>
+    `,
+                                                          'Identifier \'nume\' is not defined'));
   it('should reject access to potentially undefined field',
      () => reject(`<div>{{maybe_person.name.first}}`, 'The expression might be null'));
   it('should accept a safe accss to an undefined field',

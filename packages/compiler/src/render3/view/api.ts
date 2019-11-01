@@ -41,7 +41,7 @@ export interface R3DirectiveMetadata {
   /**
    * Dependencies of the directive's constructor.
    */
-  deps: R3DependencyMetadata[]|null;
+  deps: R3DependencyMetadata[]|'invalid'|null;
 
   /**
    * Unparsed selector of the directive, or `null` if there was no selector.
@@ -54,25 +54,15 @@ export interface R3DirectiveMetadata {
   queries: R3QueryMetadata[];
 
   /**
+   * Information about the view queries made by the directive.
+   */
+  viewQueries: R3QueryMetadata[];
+
+  /**
    * Mappings indicating how the directive interacts with its host element (host bindings,
    * listeners, etc).
    */
-  host: {
-    /**
-     * A mapping of attribute binding keys to unparsed expressions.
-     */
-    attributes: {[key: string]: string};
-
-    /**
-     * A mapping of event binding keys to unparsed expressions.
-     */
-    listeners: {[key: string]: string};
-
-    /**
-     * A mapping of property binding keys to unparsed expressions.
-     */
-    properties: {[key: string]: string};
-  };
+  host: R3HostMetadata;
 
   /**
    * Information about usage of specific lifecycle events which require special treatment in the
@@ -101,6 +91,11 @@ export interface R3DirectiveMetadata {
   usesInheritance: boolean;
 
   /**
+   * Whether or not the component or directive inherits its entire decorator from its base class.
+   */
+  fullInheritance: boolean;
+
+  /**
    * Reference name under which to export the directive's type in a template,
    * if any.
    */
@@ -125,11 +120,6 @@ export interface R3ComponentMetadata extends R3DirectiveMetadata {
      */
     nodes: t.Node[];
   };
-
-  /**
-   * Information about the view queries made by the component.
-   */
-  viewQueries: R3QueryMetadata[];
 
   /**
    * A map of pipe names to an expression referencing the pipe type which are in the scope of the
@@ -252,7 +242,6 @@ export interface R3QueryMetadata {
 export interface R3DirectiveDef {
   expression: o.Expression;
   type: o.Type;
-  statements: o.Statement[];
 }
 
 /**
@@ -261,5 +250,27 @@ export interface R3DirectiveDef {
 export interface R3ComponentDef {
   expression: o.Expression;
   type: o.Type;
-  statements: o.Statement[];
+}
+
+/**
+ * Mappings indicating how the class interacts with its
+ * host element (host bindings, listeners, etc).
+ */
+export interface R3HostMetadata {
+  /**
+   * A mapping of attribute binding keys to `o.Expression`s.
+   */
+  attributes: {[key: string]: o.Expression};
+
+  /**
+   * A mapping of event binding keys to unparsed expressions.
+   */
+  listeners: {[key: string]: string};
+
+  /**
+   * A mapping of property binding keys to unparsed expressions.
+   */
+  properties: {[key: string]: string};
+
+  specialAttributes: {styleAttr?: string; classAttr?: string;};
 }

@@ -17,7 +17,7 @@ import {CompilerFacade, ExportedCompilerFacade} from '@angular/core/src/compiler
 import {getErrorLogger} from '@angular/core/src/errors';
 import {resolveComponentResources} from '@angular/core/src/metadata/resource_loading';
 import {TestBed, fakeAsync, tick} from '@angular/core/testing';
-import {fixmeIvy, modifiedInIvy, onlyInIvy} from '@angular/private/testing';
+import {modifiedInIvy, onlyInIvy} from '@angular/private/testing';
 
 describe('jit source mapping', () => {
   let resourceLoader: MockResourceLoader;
@@ -201,7 +201,7 @@ describe('jit source mapping', () => {
                const comp = compileAndCreateComponent(MyComp);
 
                let error: any;
-               const errorHandler = TestBed.get(ErrorHandler);
+               const errorHandler = TestBed.inject(ErrorHandler);
                spyOn(errorHandler, 'handleError').and.callFake((e: any) => error = e);
                comp.debugElement.children[0].children[0].triggerEventHandler('click', 'EVENT');
                expect(error).toBeTruthy();
@@ -381,7 +381,7 @@ describe('jit source mapping', () => {
            const comp = resolveCompileAndCreateComponent(MyComp, template);
 
            let error: any;
-           const errorHandler = TestBed.get(ErrorHandler);
+           const errorHandler = TestBed.inject(ErrorHandler);
            spyOn(errorHandler, 'handleError').and.callFake((e: any) => error = e);
            try {
              comp.debugElement.children[0].children[0].triggerEventHandler('click', 'EVENT');

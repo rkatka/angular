@@ -5,9 +5,9 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-
 import * as ts from 'typescript';
-
+import {absoluteFrom} from '../../file_system';
+import {getSourceFileOrNull, resolveModuleName} from '../../util/src/typescript';
 import {Reference} from './references';
 
 export interface ReferenceResolver {
@@ -28,11 +28,10 @@ export class ModuleResolver {
 
   resolveModuleName(module: string, containingFile: ts.SourceFile): ts.SourceFile|null {
     const resolved =
-        ts.resolveModuleName(module, containingFile.fileName, this.compilerOptions, this.host)
-            .resolvedModule;
+        resolveModuleName(module, containingFile.fileName, this.compilerOptions, this.host);
     if (resolved === undefined) {
       return null;
     }
-    return this.program.getSourceFile(resolved.resolvedFileName) || null;
+    return getSourceFileOrNull(this.program, absoluteFrom(resolved.resolvedFileName));
   }
 }

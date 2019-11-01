@@ -14,7 +14,7 @@ export enum ErrorCode {
   DECORATOR_UNEXPECTED = 1005,
 
   /**
-   * This error code indicates that there are incompatible decorators on a type.
+   * This error code indicates that there are incompatible decorators on a type or a class field.
    */
   DECORATOR_COLLISION = 1006,
 
@@ -24,6 +24,7 @@ export enum ErrorCode {
   COMPONENT_MISSING_TEMPLATE = 2001,
   PIPE_MISSING_NAME = 2002,
   PARAM_MISSING_TOKEN = 2003,
+  DIRECTIVE_MISSING_SELECTOR = 2004,
 
   SYMBOL_NOT_EXPORTED = 3001,
   SYMBOL_EXPORTED_UNDER_DIFFERENT_NAME = 3002,
@@ -35,6 +36,64 @@ export enum ErrorCode {
    * expression containing a pipe.
    */
   HOST_BINDING_PARSE_ERROR = 5001,
+
+  /**
+   * Raised when an NgModule contains an invalid reference in `declarations`.
+   */
+  NGMODULE_INVALID_DECLARATION = 6001,
+
+  /**
+   * Raised when an NgModule contains an invalid type in `imports`.
+   */
+  NGMODULE_INVALID_IMPORT = 6002,
+
+  /**
+   * Raised when an NgModule contains an invalid type in `exports`.
+   */
+  NGMODULE_INVALID_EXPORT = 6003,
+
+  /**
+   * Raised when an NgModule contains a type in `exports` which is neither in `declarations` nor
+   * otherwise imported.
+   */
+  NGMODULE_INVALID_REEXPORT = 6004,
+
+  /**
+   * Raised when a `ModuleWithProviders` with a missing
+   * generic type argument is passed into an `NgModule`.
+   */
+  NGMODULE_MODULE_WITH_PROVIDERS_MISSING_GENERIC = 6005,
+
+  /**
+   * Raised when an NgModule exports multiple directives/pipes of the same name and the compiler
+   * attempts to generate private re-exports within the NgModule file.
+   */
+  NGMODULE_REEXPORT_NAME_COLLISION = 6006,
+
+  /**
+   * Raised when ngcc tries to inject a synthetic decorator over one that already exists.
+   */
+  NGCC_MIGRATION_DECORATOR_INJECTION_ERROR = 7001,
+
+  /**
+   * An element name failed validation against the DOM schema.
+   */
+  SCHEMA_INVALID_ELEMENT = 8001,
+
+  /**
+   * An element's attribute name failed validation against the DOM schema.
+   */
+  SCHEMA_INVALID_ATTRIBUTE = 8002,
+
+  /**
+   * No matching directive was found for a `#ref="target"` expression.
+   */
+  MISSING_REFERENCE_TARGET = 8003,
+
+  /**
+   * No matching pipe was found for a
+   */
+  MISSING_PIPE = 8004,
 }
 
 export function ngErrorCode(code: ErrorCode): number {

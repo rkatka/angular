@@ -8,7 +8,7 @@
 
 import {Type} from '../interface/type';
 
-import {defineInjectable} from './interface/defs';
+import {ɵɵdefineInjectable} from './interface/defs';
 
 /**
  * Creates a token that can be used in a DI Provider.
@@ -54,20 +54,21 @@ export class InjectionToken<T> {
   /** @internal */
   readonly ngMetadataName = 'InjectionToken';
 
-  readonly ngInjectableDef: never|undefined;
+  readonly ɵprov: never|undefined;
 
   constructor(protected _desc: string, options?: {
-    providedIn?: Type<any>| 'root' | null,
+    providedIn?: Type<any>| 'root' | 'platform' | 'any' | null,
     factory: () => T
   }) {
-    this.ngInjectableDef = undefined;
+    this.ɵprov = undefined;
     if (typeof options == 'number') {
       // This is a special hack to assign __NG_ELEMENT_ID__ to this instance.
       // __NG_ELEMENT_ID__ is Used by Ivy to determine bloom filter id.
       // We are using it to assign `-1` which is used to identify `Injector`.
       (this as any).__NG_ELEMENT_ID__ = options;
     } else if (options !== undefined) {
-      this.ngInjectableDef = defineInjectable({
+      this.ɵprov = ɵɵdefineInjectable({
+        token: this,
         providedIn: options.providedIn || 'root',
         factory: options.factory,
       });
@@ -77,4 +78,4 @@ export class InjectionToken<T> {
   toString(): string { return `InjectionToken ${this._desc}`; }
 }
 
-export interface InjectableDefToken<T> extends InjectionToken<T> { ngInjectableDef: never; }
+export interface InjectableDefToken<T> extends InjectionToken<T> { ɵprov: never; }

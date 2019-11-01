@@ -26,7 +26,7 @@ export const NG_ANIMATING_SELECTOR = '.ng-animating';
 export function resolveTimingValue(value: string | number) {
   if (typeof value == 'number') return value;
 
-  const matches = (value as string).match(/^(-?[\.\d]+)(m?s)/);
+  const matches = value.match(/^(-?[\.\d]+)(m?s)/);
   if (!matches || matches.length < 2) return 0;
 
   return _convertTimeValueToMS(parseFloat(matches[1]), matches[2]);
@@ -73,7 +73,7 @@ function parseTimeExpression(
       easing = easingVal;
     }
   } else {
-    duration = <number>exp;
+    duration = exp;
   }
 
   if (!allowNegativeValues) {
@@ -157,10 +157,13 @@ function writeStyleAttribute(element: any) {
   element.setAttribute('style', styleAttrValue);
 }
 
-export function setStyles(element: any, styles: ɵStyleData) {
+export function setStyles(element: any, styles: ɵStyleData, formerStyles?: {[key: string]: any}) {
   if (element['style']) {
     Object.keys(styles).forEach(prop => {
       const camelProp = dashCaseToCamelCase(prop);
+      if (formerStyles && !formerStyles.hasOwnProperty(prop)) {
+        formerStyles[prop] = element.style[camelProp];
+      }
       element.style[camelProp] = styles[prop];
     });
     // On the server set the 'style' attribute since it's not automatically reflected.
@@ -211,10 +214,8 @@ const PARAM_REGEX =
 export function extractStyleParams(value: string | number): string[] {
   let params: string[] = [];
   if (typeof value === 'string') {
-    const val = value.toString();
-
     let match: any;
-    while (match = PARAM_REGEX.exec(val)) {
+    while (match = PARAM_REGEX.exec(value)) {
       params.push(match[1] as string);
     }
     PARAM_REGEX.lastIndex = 0;

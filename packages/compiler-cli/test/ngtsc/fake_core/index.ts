@@ -44,7 +44,8 @@ export const Output = callablePropDecorator();
 export const ViewChild = callablePropDecorator();
 export const ViewChildren = callablePropDecorator();
 
-export type ModuleWithProviders<T> = any;
+// T defaults to `any` to reflect what is currently in core.
+export type ModuleWithProviders<T = any> = any;
 
 export class ChangeDetectorRef {}
 export class ElementRef {}
@@ -62,8 +63,9 @@ export function forwardRef<T>(fn: () => T): T {
 
 export interface SimpleChanges { [propName: string]: any; }
 
-export type ɵNgModuleDefWithMeta<ModuleT, DeclarationsT, ImportsT, ExportsT> = any;
-export type ɵDirectiveDefWithMeta<DirT, SelectorT, ExportAsT, InputsT, OutputsT, QueriesT> = any;
+export type ɵɵNgModuleDefWithMeta<ModuleT, DeclarationsT, ImportsT, ExportsT> = any;
+export type ɵɵDirectiveDefWithMeta<DirT, SelectorT, ExportAsT, InputsT, OutputsT, QueriesT> = any;
+export type ɵɵPipeDefWithMeta<PipeT, NameT> = any;
 
 export enum ViewEncapsulation {
   Emulated = 0,
@@ -75,4 +77,11 @@ export enum ViewEncapsulation {
 export enum ChangeDetectionStrategy {
   OnPush = 0,
   Default = 1
+}
+
+export const CUSTOM_ELEMENTS_SCHEMA: any = false;
+export const NO_ERRORS_SCHEMA: any = false;
+
+export class EventEmitter<T> {
+  subscribe(generatorOrNext?: any, error?: any, complete?: any): unknown { return null; }
 }

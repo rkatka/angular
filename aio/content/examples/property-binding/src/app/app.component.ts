@@ -7,17 +7,17 @@ import { Component } from '@angular/core';
   styleUrls: ['./app.component.css']
 })
 export class AppComponent {
-  itemImageUrl = '../assets/lamp.png';
+  itemImageUrl = '../assets/phone.png';
   isUnchanged = true;
   classes = 'special';
   // #docregion parent-data-type
-  parentItem = 'bananas';
+  parentItem = 'lamp';
   // #enddocregion parent-data-type
 
   // #docregion pass-object
   currentItem = [{
     id: 21,
-    name: 'peaches'
+    name: 'phone'
   }];
   // #enddocregion pass-object
 
@@ -25,6 +25,6 @@ export class AppComponent {
   propertyTitle = 'Property binding';
 
   // #docregion malicious-content
-  evilTitle = 'Template <script>alert("evil never sleeps")</script>Syntax';
+  evilTitle = 'Template <script>alert("evil never sleeps")</script> Syntax';
   // #enddocregion malicious-content
 }

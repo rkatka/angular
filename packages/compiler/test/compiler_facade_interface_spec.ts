@@ -7,7 +7,7 @@
  */
 
 import * as core from '../../core/src/compiler/compiler_facade_interface';
-import {R3ResolvedDependencyType} from '../public_api';
+import {R3FactoryTarget, R3ResolvedDependencyType} from '../public_api';
 import * as compiler from '../src/compiler_facade_interface';
 
 /**
@@ -36,6 +36,9 @@ const compilerCompilerFacade: compiler.CompilerFacade = null !as core.CompilerFa
 const coreCoreEnvironment: core.CoreEnvironment = null !as compiler.CoreEnvironment;
 const compilerCoreEnvironment: compiler.CoreEnvironment = null !as core.CoreEnvironment;
 
+const coreResourceLoader: core.ResourceLoader = null !as compiler.ResourceLoader;
+const compilerResourceLoader: compiler.ResourceLoader = null !as core.ResourceLoader;
+
 const coreStringMap: core.StringMap = null !as compiler.StringMap;
 const compilerStringMap: compiler.StringMap = null !as core.StringMap;
 
@@ -56,6 +59,15 @@ const coreR3ResolvedDependencyType3: core.R3ResolvedDependencyType =
     null !as R3ResolvedDependencyType;
 const compilerR3ResolvedDependencyType3: compiler.R3ResolvedDependencyType =
     null !as R3ResolvedDependencyType;
+
+const coreR3FactoryTarget: core.R3FactoryTarget = null !as compiler.R3FactoryTarget;
+const compilerR3FactoryTarget: compiler.R3FactoryTarget = null !as core.R3FactoryTarget;
+
+const coreR3FactoryTarget2: R3FactoryTarget = null !as core.R3FactoryTarget;
+const compilerR3FactoryTarget2: R3FactoryTarget = null !as core.R3FactoryTarget;
+
+const coreR3FactoryTarget3: core.R3FactoryTarget = null !as R3FactoryTarget;
+const compilerR3FactoryTarget3: compiler.R3FactoryTarget = null !as R3FactoryTarget;
 
 const coreR3DependencyMetadataFacade: core.R3DependencyMetadataFacade =
     null !as compiler.R3DependencyMetadataFacade;

@@ -1,16 +1,26 @@
-# Creating Libraries
+﻿# Creating Libraries
 
 You can create and publish new libraries to extend Angular functionality. If you find that you need to solve the same problem in more than one app (or want to share your solution with other developers), you have a candidate for a library.
 
-An simple example might be a button that sends users to your company website, that would be included in all apps that your company builds.
+A simple example might be a button that sends users to your company website, that would be included in all apps that your company builds.
+
+<div class="alert is-helpful">
+     <p>For more details on how a library project is structured you can refer the <a href="guide/file-structure#library-project-files">Library Project Files</a></p>
+</div>
 
 ## Getting started
 
 Use the Angular CLI to generate a new library skeleton with the following command:
 
-<code-example format="." language="bash">
+<code-example language="bash">
+ ng new my-workspace --create-application=false
+ cd my-workspace
  ng generate library my-lib
 </code-example>
+
+<div class="alert is-helpful">
+     <p>You can use the monorepo model to use the same workspace for multiple projects. See <a href="guide/file-structure#multiple-projects">Setting up for a multi-project workspace</a>.</p>
+</div>
 
 This creates the `projects/my-lib` folder in your workspace, which contains a component and a service inside an NgModule.
 The workspace configuration file, `angular.json`, is updated with a project of type 'library'.
@@ -31,18 +41,18 @@ The workspace configuration file, `angular.json`, is updated with a project of t
 
 You can build, test, and lint the project with CLI commands:
 
-<code-example format="." language="bash">
+<code-example language="bash">
  ng build my-lib
  ng test my-lib
  ng lint my-lib
 </code-example>
 
-Notice that the configured builder for the  project is different from the default builder for app projects.
+Notice that the configured builder for the project is different from the default builder for app projects.
 This builder, among other things, ensures that the library is always built with the [AoT compiler](guide/aot-compiler), without the need to specify the `--prod` flag.
 
 To make library code reusable you must define a public API for it. This "user layer" defines what is available to consumers of your library. A user of your library should be able to access public functionality (such as NgModules, service providers and general utility functions) through a single import path.
 
-The public API for your library is maintained in the `index.ts` file of your library folder.
+The public API for your library is maintained in the `public-api.ts` file in your library folder.
 Anything exported from this file is made public when your library is imported into an application.
 Use an NgModule to expose services and components.
 
@@ -83,6 +93,8 @@ If that form will need additional customization by the user, it might work best 
 However, if the forms will always be the same and not need much customization by developers, then you could create a dynamic component that takes the configuration and generates the form.
 In general, the more complex the customization, the more useful the schematic approach.
 
+{@a integrating-with-the-cli}
+
 ## Integrating with the CLI
 
 A library can include [schematics](guide/glossary#schematic) that allow it to integrate with the Angular CLI.
@@ -93,14 +105,14 @@ A library can include [schematics](guide/glossary#schematic) that allow it to in
 
 * Include an update schematic so that `ng update` can update your library’s dependencies and provide migrations for breaking changes in new releases.
 
-To learn more, see [Schematics — An Introduction](https://blog.angular.io/schematics-an-introduction-dc1dfbc2a2b2).
+To learn more, see [Schematics Overview](guide/schematics) and [Schematics for Libraries](guide/schematics-for-libraries).
 
 ## Publishing your library
 
 Use the Angular CLI and the npm package manager to build and publish your library as an npm package.
 Libraries are built in [AoT mode](guide/aot-compiler) by default, so you do not need to specify the `-prod` flag when building for publication.
 
-<code-example format="." language="bash">
+<code-example language="bash">
 ng build my-lib
 cd dist/my-lib
 npm publish
@@ -119,7 +131,7 @@ For example, `main` should point at a JavaScript file, not a TypeScript file.
 ## Use TypeScript path mapping for peer dependencies
 
 Angular libraries should list all `@angular/*` dependencies as peer dependencies.
-This insures that when modules ask for Angular, they all get the exact same module.
+This ensures that when modules ask for Angular, they all get the exact same module.
 If a library lists `@angular/core` in `dependencies` instead of `peerDependencies`, it might get a different Angular module instead, which would cause your application to break.
 
 While developing a library, you must install all peer dependencies through `devDependencies` to ensure that the library compiles properly.
@@ -127,7 +139,7 @@ A linked library will then have its own set of Angular libraries that it uses fo
 However, this can cause problems while building or running your application.
 
 To get around this problem you can use TypeScript path mapping to tell TypeScript that it should load some modules from a specific location.
-List all the peer dependencies that your library uses in the TypeScript configuration file `./tsconfig.json`, and point them at the local copy in the app's `node_modules` folder.
+List all the peer dependencies that your library uses in the workspace TypeScript configuration file `./tsconfig.json`, and point them at the local copy in the app's `node_modules` folder.
 
 ```
 {
@@ -136,7 +148,7 @@ List all the peer dependencies that your library uses in the TypeScript configur
     // paths are relative to `baseUrl` path.
     "paths": {
       "@angular/*": [
-        "../node_modules/@angular/*"
+        "./node_modules/@angular/*"
       ]
     }
   }
@@ -152,13 +164,13 @@ You don't have to publish your library to the npm package manager in order to us
 To use your own library in an app:
 
 * Build the library. You cannot use a library before it is built.
- <code-example format="." language="bash">
+ <code-example language="bash">
  ng build my-lib
  </code-example>
 
 * In your apps, import from the library by name:
  ```
- import { my-export } from 'my-lib';
+ import { myExport } from 'my-lib';
  ```
 
 ### Building and rebuilding your library
@@ -169,7 +181,7 @@ For instance, if you clone your git repository and run `npm install`, your edito
 <div class="alert is-helpful">
 
 When you import something from a library in an Angular app, Angular looks for a mapping between the library name and a location on disk.
-When you install a library package, the mapping is in the `node_modules` folder. When you build your own library, it has to find the mapping  in your `tsconfig` paths.
+When you install a library package, the mapping is in the `node_modules` folder. When you build your own library, it has to find the mapping in your `tsconfig` paths.
 
 Generating a library with the Angular CLI automatically adds its path to the `tsconfig` file.
 The Angular CLI uses the `tsconfig` paths to tell the build system where to find the library.
@@ -182,8 +194,23 @@ You can rebuild your library whenever you make changes to it, but this extra ste
 *Incremental builds* functionality improves the library-development experience.
 Every time a file is changed a partial build is performed that emits the amended files.
 
-Incremental builds can be run as a backround process in your dev environment. To take advantage of this feature add the `--watch` flag to the build command:
+Incremental builds can be run as a background process in your dev environment. To take advantage of this feature add the `--watch` flag to the build command:
 
-<code-example format="." language="bash">
+<code-example language="bash">
 ng build my-lib --watch
 </code-example>
+
+<div class="alert is-important">
+
+The CLI `build` command uses a different builder and invokes a different build tool for libraries than it does for applications.
+
+* The build system for apps, `@angular-devkit/build-angular`, is based on `webpack`, and is included in all new Angular CLI projects.
+* The build system for libraries is based on `ng-packagr`. It is only added to your dependencies when you add a library using `ng generate library my-lib`.
+
+The two build systems support different things, and even where they support the same things, they do those things differently.
+This means that the TypeScript source can result in different JavaScript code in a built library than it would in a built application.
+
+For this reason, an app that depends on a library should only use TypeScript path mappings that point to the *built library*.
+TypeScript path mappings should *not* point to the library source `.ts` files.
+
+</div>

@@ -17,12 +17,16 @@ import {replaceTsWithNgInErrors} from './ngtsc/diagnostics';
 import * as api from './transformers/api';
 import {GENERATED_FILES} from './transformers/util';
 
-import {exitCodeFromResult, performCompilation, readConfiguration, formatDiagnostics, Diagnostics, ParsedConfiguration, PerformCompilationResult, filterErrorsAndWarnings} from './perform_compile';
+import {exitCodeFromResult, performCompilation, readConfiguration, formatDiagnostics, Diagnostics, ParsedConfiguration, filterErrorsAndWarnings} from './perform_compile';
 import {performWatchCompilation, createPerformWatchHost} from './perform_watch';
+import {NodeJSFileSystem, setFileSystem} from './ngtsc/file_system';
 
 export function main(
     args: string[], consoleError: (s: string) => void = console.error,
-    config?: NgcParsedConfiguration, customTransformers?: api.CustomTransformers): number {
+    config?: NgcParsedConfiguration, customTransformers?: api.CustomTransformers, programReuse?: {
+      program: api.Program | undefined,
+    },
+    modifiedResourceFiles?: Set<string>| null): number {
   let {project, rootNames, options, errors: configErrors, watch, emitFlags} =
       config || readNgcCommandLineAndConfiguration(args);
   if (configErrors.length) {
@@ -32,12 +36,22 @@ export function main(
     const result = watchMode(project, options, consoleError);
     return reportErrorsAndExit(result.firstCompileResult, options, consoleError);
   }
-  const {diagnostics: compileDiags} = performCompilation({
+
+  let oldProgram: api.Program|undefined;
+  if (programReuse !== undefined) {
+    oldProgram = programReuse.program;
+  }
+
+  const {diagnostics: compileDiags, program} = performCompilation({
     rootNames,
     options,
     emitFlags,
-    emitCallback: createEmitCallback(options), customTransformers
+    oldProgram,
+    emitCallback: createEmitCallback(options), customTransformers, modifiedResourceFiles
   });
+  if (programReuse !== undefined) {
+    programReuse.program = program;
+  }
   return reportErrorsAndExit(compileDiags, options, consoleError);
 }
 
@@ -54,7 +68,8 @@ export function mainDiagnosticsForTest(
 }
 
 function createEmitCallback(options: api.CompilerOptions): api.TsEmitCallback|undefined {
-  const transformDecorators = !options.enableIvy && options.annotationsAs !== 'decorators';
+  const transformDecorators =
+      (options.enableIvy === false && options.annotationsAs !== 'decorators');
   const transformTypesToClosure = options.annotateForClosureCompiler;
   if (!transformDecorators && !transformTypesToClosure) {
     return undefined;
@@ -92,8 +107,8 @@ function createEmitCallback(options: api.CompilerOptions): api.TsEmitCallback|un
            }) =>
                // tslint:disable-next-line:no-require-imports only depend on tsickle if requested
         require('tsickle').emitWithTsickle(
-            program, {...tsickleHost, options, host}, host, options, targetSourceFile, writeFile,
-            cancellationToken, emitOnlyDtsFiles, {
+            program, {...tsickleHost, options, host, moduleResolutionHost: host}, host, options,
+            targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, {
               beforeTs: customTransformers.before,
               afterTs: customTransformers.after,
             });
@@ -191,7 +206,7 @@ function reportErrorsAndExit(
   const errorsAndWarnings = filterErrorsAndWarnings(allDiagnostics);
   if (errorsAndWarnings.length) {
     const formatHost = getFormatDiagnosticsHost(options);
-    if (options && options.enableIvy === true) {
+    if (options && options.enableIvy !== false) {
       const ngDiagnostics = errorsAndWarnings.filter(api.isNgDiagnostic);
       const tsDiagnostics = errorsAndWarnings.filter(api.isTsDiagnostic);
       consoleError(replaceTsWithNgInErrors(
@@ -214,5 +229,7 @@ export function watchMode(
 // CLI entry point
 if (require.main === module) {
   const args = process.argv.slice(2);
+  // We are running the real compiler so run against the real file-system
+  setFileSystem(new NodeJSFileSystem());
   process.exitCode = main(args);
 }
